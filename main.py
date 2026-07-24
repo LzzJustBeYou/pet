@@ -28,7 +28,7 @@ class DesktopPet(QWidget):
 
     def initUI(self):
         # 窗口和透明设置
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.SubWindow)
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
         
         # 标签设置
