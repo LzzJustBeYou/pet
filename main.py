@@ -4,53 +4,89 @@ from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, qApp, QFileDia
 from PyQt5.QtCore import Qt, QPoint, QSize
 from PyQt5.QtGui import QMovie
 
+
 def resource_path(relative_path):
-    """ 获取资源的绝对路径。兼容开发环境和 PyInstaller 打包后的环境 """
+    """获取资源的绝对路径。兼容开发环境和 PyInstaller 打包后的环境"""
     try:
         base_path = sys._MEIPASS
     except Exception:
         base_path = os.path.abspath(".")
     return os.path.join(base_path, relative_path)
 
+
+def scan_actions(actions_dir="actions"):
+    """
+    扫描 actions/ 目录，自动发现所有动作。
+    约定：子目录 = 分类（菜单），目录内的 .gif 文件 = 动作，文件名（去扩展名）= 显示名。
+
+    返回: [(分类名, [(显示名, 完整路径), ...]), ...]
+    只需把 GIF 放进 actions/ 的任意子目录即可自动出现在菜单中。
+    """
+    categories = []
+    target_dir = resource_path(actions_dir)
+    if not os.path.isdir(target_dir):
+        return categories
+
+    for category in sorted(os.listdir(target_dir)):
+        cat_path = os.path.join(target_dir, category)
+        if not os.path.isdir(cat_path):
+            continue
+        actions = []
+        for f in sorted(os.listdir(cat_path)):
+            if f.lower().endswith(".gif"):
+                full_path = os.path.join(cat_path, f)
+                display_name = os.path.splitext(f)[0]
+                actions.append((display_name, full_path))
+        if actions:
+            categories.append((category, actions))
+    return categories
+
+
 class DesktopPet(QWidget):
     def __init__(self):
         super().__init__()
-        
+
         # --- 宠物基础设置 ---
         self.pet_width = 100
         self.pet_height = 100
-        
-        # 记录当前的动图路径
-        self.current_gif = resource_path('pet.gif')
-        
+
+        # 自动发现所有动作，取第一个作为默认
+        all_actions = scan_actions()
+        self.current_gif = None
+        if all_actions and all_actions[0][1]:
+            self.current_gif = all_actions[0][1][0][1]
+
         self.initUI()
         self.dragPosition = QPoint()
 
     def initUI(self):
         # 窗口和透明设置
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool)
+        self.setWindowFlags(
+            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
+        )
         self.setAttribute(Qt.WA_TranslucentBackground)
-        
+
         # 标签设置
         self.label = QLabel(self)
         self.label.setFixedSize(self.pet_width, self.pet_height)
         self.resize(self.pet_width, self.pet_height)
-        
+
         # 首次加载
-        self.movie = QMovie(self.current_gif)
+        if self.current_gif:
+            self._load_gif(self.current_gif)
+
+    def _load_gif(self, gif_path):
+        """加载并播放 GIF"""
+        self.movie = QMovie(gif_path)
         self.movie.setScaledSize(QSize(self.pet_width, self.pet_height))
         self.label.setMovie(self.movie)
         self.movie.start()
 
     def change_pet(self, new_gif_path):
-        """ 核心功能：平滑切换 GIF 动图 """
-        self.movie.stop() # 停止旧动画
+        """核心功能：平滑切换 GIF 动图"""
+        self.movie.stop()
         self.current_gif = new_gif_path
-        
-        self.movie = QMovie(self.current_gif)
-        self.movie.setScaledSize(QSize(self.pet_width, self.pet_height))
-        self.label.setMovie(self.movie)
-        self.movie.start() # 开始新动画
+        self._load_gif(new_gif_path)
 
     # --- 鼠标左键拖拽功能 ---
     def mousePressEvent(self, event):
@@ -63,52 +99,40 @@ class DesktopPet(QWidget):
             self.move(event.globalPos() - self.dragPosition)
             event.accept()
 
-    # --- 强大的右键菜单功能 ---
+    # --- 右键菜单功能 ---
     def contextMenuEvent(self, event):
         menu = QMenu(self)
-        
-        # 1. 创建子菜单用于切换内置状态
-        switch_menu = menu.addMenu("切换动作")
-        action_chou = switch_menu.addAction("臭臭喵")
-        action_work = switch_menu.addAction("工作喵")
-        action_yaoyao = switch_menu.addAction("摇摇椅喵")
-        action_music = switch_menu.addAction("听歌喵")
-        
-        # 分割线
-        menu.addSeparator() 
-        
-        # 2. 自定义加载外部 GIF
-        load_action = menu.addAction("加载本地 GIF...")
-        
-        # 分割线
+
+        # 动态扫描，构建分类子菜单
+        categories = scan_actions()
+        for cat_name, actions in categories:
+            sub_menu = menu.addMenu(cat_name)
+            for display_name, gif_path in actions:
+                action = sub_menu.addAction(display_name)
+                action.setData(gif_path)
+
         menu.addSeparator()
-        
-        # 3. 退出功能
+        load_action = menu.addAction("加载本地 GIF...")
+        menu.addSeparator()
         quit_action = menu.addAction("退出宠物")
-        
-        # 捕捉点击动作
+
         action = menu.exec_(self.mapToGlobal(event.pos()))
-        
-        # 根据用户的点击执行相应的逻辑
-        if action == action_chou:
-            self.change_pet(resource_path('pet.gif'))
-        elif action == action_work:
-            self.change_pet(resource_path('pet-3.gif'))
-        elif action == action_yaoyao:
-            self.change_pet(resource_path('pet-4.gif'))
-        elif action == action_music:
-            self.change_pet(resource_path('pet-5.gif'))
-        elif action == load_action:
-            # 弹出文件选择对话框
+        if action is None:
+            return
+
+        if action == load_action:
             file_name, _ = QFileDialog.getOpenFileName(
                 self, "选择自定义宠物", "", "GIF 动图 (*.gif)"
             )
-            if file_name: # 如果用户选了文件而不是点了取消
+            if file_name:
                 self.change_pet(file_name)
         elif action == quit_action:
             qApp.quit()
+        elif action.data() is not None:
+            self.change_pet(action.data())
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     app = QApplication(sys.argv)
     pet = DesktopPet()
     pet.show()

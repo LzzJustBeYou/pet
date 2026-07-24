@@ -1,0 +1,9 @@
+# Ignore everything by default
+/*
+
+# Except these two source files
+!/main.py
+!/main.spec
+
+# Keep the .gitignore itself tracked
+!/.gitignore
