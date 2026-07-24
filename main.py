@@ -1,7 +1,7 @@
 import sys
 import os
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, qApp, QFileDialog
-from PyQt5.QtCore import Qt, QPoint, QSize
+from PyQt5.QtCore import Qt, QPoint, QSize, QTimer
 from PyQt5.QtGui import QMovie, QIcon
 
 
@@ -69,10 +69,12 @@ class DesktopPet(QWidget):
 
     def initUI(self):
         # 窗口和透明设置
-        self.setWindowFlags(
-            Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint | Qt.Tool
-        )
+        # 注意：不使用 Qt.WindowStaysOnTopHint，避免 Qt 与 ctypes 设置冲突
+        # 窗口层级完全由 _pin_macos_topmost() 通过 objc_msgSend 控制
+        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
         self.setAttribute(Qt.WA_TranslucentBackground)
+        self.setAttribute(Qt.WA_ShowWithoutActivating)  # 不抢焦点
+        self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)  # 不激活时也显示
 
         # 标签设置
         self.label = QLabel(self)
@@ -89,6 +91,91 @@ class DesktopPet(QWidget):
         self.movie.setScaledSize(QSize(self.pet_width, self.pet_height))
         self.label.setMovie(self.movie)
         self.movie.start()
+
+    def showEvent(self, event):
+        """窗口显示后，macOS 上提升窗口层级确保永远在最顶层。"""
+        super().showEvent(event)
+        if sys.platform == "darwin":
+            for delay in (0, 200, 500, 1500):
+                QTimer.singleShot(delay, self._pin_macos_topmost)
+            self._topmost_timer = QTimer(self)
+            self._topmost_timer.timeout.connect(self._keep_on_top)
+            self._topmost_timer.start(3000)  # 每 3 秒双重确认
+
+    def _keep_on_top(self):
+        """定时保持顶层：层级 + z-order + orderFrontRegardless 三重保险。"""
+        self._pin_macos_topmost()
+        self.raise_()
+        # orderFrontRegardless: 即使 app 未激活也强制置前
+        import ctypes
+        import ctypes.util
+        from ctypes import c_void_p, c_char_p, CFUNCTYPE, cast
+
+        try:
+            win_id = int(self.winId())
+            if win_id == 0:
+                return
+            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+            sel_reg = objc.sel_registerName
+            sel_reg.restype = c_void_p
+            sel_reg.argtypes = [c_char_p]
+            msg_id = CFUNCTYPE(c_void_p, c_void_p, c_void_p)
+            nswindow = cast(objc.objc_msgSend, msg_id)(
+                c_void_p(win_id), sel_reg(b"window")
+            )
+            if nswindow:
+                msg_void = CFUNCTYPE(None, c_void_p, c_void_p)
+                cast(objc.objc_msgSend, msg_void)(
+                    nswindow, sel_reg(b"orderFrontRegardless")
+                )
+        except Exception:
+            pass
+
+    def _pin_macos_topmost(self):
+        """通过 objc_msgSend 将 NSWindow 层级提升至 kCGOverlayWindowLevel，
+        高于全屏应用、Dock、菜单栏，且在所有桌面空间可见。"""
+        import ctypes
+        import ctypes.util
+        from ctypes import c_void_p, c_long, c_char_p, CFUNCTYPE, cast
+
+        try:
+            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+            sel_reg = objc.sel_registerName
+            sel_reg.restype = c_void_p
+            sel_reg.argtypes = [c_char_p]
+
+            msg_id = CFUNCTYPE(c_void_p, c_void_p, c_void_p)
+            msg_void_long = CFUNCTYPE(None, c_void_p, c_void_p, c_long)
+            msg_long = CFUNCTYPE(c_long, c_void_p, c_void_p)
+
+            win_id = int(self.winId())
+            if win_id == 0:
+                return
+
+            nswindow = cast(objc.objc_msgSend, msg_id)(
+                c_void_p(win_id), sel_reg(b"window")
+            )
+            if not nswindow:
+                return
+
+            # 检查当前层级，只在需要时设置，避免无谓的窗口刷新
+            current = cast(objc.objc_msgSend, msg_long)(
+                nswindow, sel_reg(b"level")
+            )
+            # kCGOverlayWindowLevel → 通过 CoreGraphics 获取
+            TARGET = 1000
+
+            if current != TARGET:
+                cast(objc.objc_msgSend, msg_void_long)(
+                    nswindow, sel_reg(b"setLevel:"), c_long(TARGET)
+                )
+                # CanJoinAllSpaces(1) | FullScreenAuxiliary(32)
+                # Stationary(4) 会锚定屏幕而非 Space，与 CanJoinAllSpaces 冲突
+                cast(objc.objc_msgSend, msg_void_long)(
+                    nswindow, sel_reg(b"setCollectionBehavior:"), c_long(33)
+                )
+        except Exception as e:
+            print(f"[DesktopPet] pin failed: {e}", file=sys.stderr)
 
     def change_pet(self, new_gif_path):
         """核心功能：平滑切换 GIF 动图"""
