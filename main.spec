@@ -7,6 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('actions', 'actions'),
+        ('icon.png', '.'),
     ],
     hiddenimports=[],
     hookspath=[],
@@ -29,6 +30,7 @@ exe = EXE(
     strip=False,
     upx=True,
     console=False,
+    icon='icon.ico',
     disable_windowed_traceback=False,
     argv_emulation=False,
     target_arch=None,
@@ -47,6 +49,6 @@ coll = COLLECT(
 app = BUNDLE(
     coll,
     name='main.app',
-    icon=None,
+    icon='icon.icns',
     bundle_identifier=None,
 )

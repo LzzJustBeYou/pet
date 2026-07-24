@@ -1,9 +1,13 @@
 # Ignore everything by default
 /*
 
-# Except these two source files
+# Except these source files
 !/main.py
 !/main.spec
+!/build.py
+!/icon.png
+!/icon.ico
+!/icon.icns
 
 # Keep the .gitignore itself tracked
 !/.gitignore

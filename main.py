@@ -2,7 +2,7 @@ import sys
 import os
 from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, qApp, QFileDialog
 from PyQt5.QtCore import Qt, QPoint, QSize
-from PyQt5.QtGui import QMovie
+from PyQt5.QtGui import QMovie, QIcon
 
 
 def resource_path(relative_path):
@@ -134,6 +134,12 @@ class DesktopPet(QWidget):
 
 if __name__ == "__main__":
     app = QApplication(sys.argv)
+
+    # 设置应用图标（显示在任务栏 / Dock / Alt+Tab 切换器中）
+    icon_path = resource_path("icon.png")
+    if os.path.exists(icon_path):
+        app.setWindowIcon(QIcon(icon_path))
+
     pet = DesktopPet()
     pet.show()
     sys.exit(app.exec_())
