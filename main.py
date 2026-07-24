@@ -50,10 +50,18 @@ class DesktopPet(QWidget):
         self.pet_width = 100
         self.pet_height = 100
 
-        # 自动发现所有动作，取第一个作为默认
+        # 自动发现所有动作，默认"臭臭小八"，找不到则取第一个
+        DEFAULT_PET = "臭臭小八"
         all_actions = scan_actions()
         self.current_gif = None
-        if all_actions and all_actions[0][1]:
+        for _cat, actions in all_actions:
+            for name, path in actions:
+                if name == DEFAULT_PET:
+                    self.current_gif = path
+                    break
+            if self.current_gif:
+                break
+        if not self.current_gif and all_actions and all_actions[0][1]:
             self.current_gif = all_actions[0][1][0][1]
 
         self.initUI()
