@@ -5,6 +5,7 @@
 !/main.py
 !/main.spec
 !/build.py
+!/generate_icons.py
 !/icon.png
 !/icon.ico
 !/icon.icns

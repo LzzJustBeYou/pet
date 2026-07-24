@@ -143,10 +143,14 @@ class DesktopPet(QWidget):
 if __name__ == "__main__":
     app = QApplication(sys.argv)
 
-    # 设置应用图标（显示在任务栏 / Dock / Alt+Tab 切换器中）
-    icon_path = resource_path("icon.png")
-    if os.path.exists(icon_path):
-        app.setWindowIcon(QIcon(icon_path))
+    # 应用图标
+    # - macOS: 图标由 .app bundle 内嵌的 icon.icns 提供，系统自动处理圆角和缩放
+    # - Windows: 需手动设置图标用于任务栏显示
+    if sys.platform == "win32":
+        icon_path = resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
+    # macOS 不需要 setWindowIcon，系统会从 .icns 读取
 
     pet = DesktopPet()
     pet.show()
