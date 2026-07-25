@@ -103,33 +103,8 @@ class DesktopPet(QWidget):
             self._topmost_timer.start(3000)  # 每 3 秒双重确认
 
     def _keep_on_top(self):
-        """定时保持顶层：层级 + z-order + orderFrontRegardless 三重保险。"""
+        """定时保持顶层：仅检查和恢复窗口层级，不调用 raise/orderFront 避免抢焦点。"""
         self._pin_macos_topmost()
-        self.raise_()
-        # orderFrontRegardless: 即使 app 未激活也强制置前
-        import ctypes
-        import ctypes.util
-        from ctypes import c_void_p, c_char_p, CFUNCTYPE, cast
-
-        try:
-            win_id = int(self.winId())
-            if win_id == 0:
-                return
-            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
-            sel_reg = objc.sel_registerName
-            sel_reg.restype = c_void_p
-            sel_reg.argtypes = [c_char_p]
-            msg_id = CFUNCTYPE(c_void_p, c_void_p, c_void_p)
-            nswindow = cast(objc.objc_msgSend, msg_id)(
-                c_void_p(win_id), sel_reg(b"window")
-            )
-            if nswindow:
-                msg_void = CFUNCTYPE(None, c_void_p, c_void_p)
-                cast(objc.objc_msgSend, msg_void)(
-                    nswindow, sel_reg(b"orderFrontRegardless")
-                )
-        except Exception:
-            pass
 
     def _pin_macos_topmost(self):
         """通过 objc_msgSend 将 NSWindow 层级提升至 kCGOverlayWindowLevel，
