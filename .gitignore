@@ -9,6 +9,7 @@
 !/icon.png
 !/icon.ico
 !/icon.icns
+!/actions
 
 # Keep the .gitignore itself tracked
 !/.gitignore
