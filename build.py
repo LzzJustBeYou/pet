@@ -130,6 +130,61 @@ def make_dmg():
     return 0
 
 
+def make_installer() -> int:
+    """
+    Windows: 将 dist/DesktopPet/ 内嵌到安装器，生成 DesktopPet_Setup.exe。
+
+    安装器本身也用 PyInstaller 打包（--onefile），用户在任意位置双击即可
+    启动安装向导，选择路径并完成安装。
+    """
+    app_dir = ROOT / "dist" / APP_NAME
+    if not app_dir.exists():
+        print("[INSTALLER] 找不到 dist/DesktopPet/，请先执行打包")
+        return 1
+
+    installer_script = ROOT / "installer.py"
+    if not installer_script.exists():
+        print("[INSTALLER] 找不到 installer.py")
+        return 1
+
+    sep = ";"  # Windows add-data 分隔符
+
+    cmd = [
+        sys.executable, "-m", "PyInstaller",
+        "--onefile",
+        "--windowed",
+        "--name", f"{APP_NAME}_Setup",
+        "--clean",
+        "--add-data", f"{app_dir}{sep}app_data",
+        str(installer_script),
+    ]
+
+    # 安装器也带上图标
+    icon = ROOT / "icon.ico"
+    if icon.exists():
+        cmd.insert(4, f"--icon={icon}")
+
+    print(f"[INSTALLER] 正在生成安装器 ...")
+    print(f"[INSTALLER] 命令: {' '.join(cmd)}")
+    print("-" * 60)
+
+    result = subprocess.run(cmd, cwd=str(ROOT))
+
+    if result.returncode != 0:
+        print(f"\n❌ 安装器打包失败 (exit code: {result.returncode})")
+        return result.returncode
+
+    # 产物可能在 dist/DesktopPet_Setup.exe（--onefile 直接产出 dist/ 下）
+    setup_exe = ROOT / "dist" / f"{APP_NAME}_Setup.exe"
+    if setup_exe.exists():
+        size = setup_exe.stat().st_size
+        print(f"\n[INSTALLER] ✅ 已生成 {setup_exe.name} ({size / 1024 / 1024:.1f} MB)")
+    else:
+        print("[INSTALLER] ⚠ 未找到产物文件，请查看 dist/ 目录")
+
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description="打包桌面宠物")
     parser.add_argument(
@@ -142,6 +197,11 @@ def main():
         "--dmg",
         action="store_true",
         help="(仅 macOS) 同时生成 DMG 安装盘",
+    )
+    parser.add_argument(
+        "--installer",
+        action="store_true",
+        help="(仅 Windows) 打包完成后生成 DesktopPet_Setup.exe 安装器",
     )
     parser.add_argument(
         "--clean-only",
@@ -174,13 +234,21 @@ def main():
 
     print(f"\n✅ 打包完成！")
 
-    # 生成 DMG
+    # 生成 DMG（macOS）
     if args.dmg and target == "mac":
         dmg_ret = make_dmg()
         if dmg_ret != 0:
             return dmg_ret
     elif args.dmg and target != "mac":
         print("[WARN] --dmg 仅在 macOS 目标下有效，已跳过")
+
+    # 生成安装器（Windows）
+    if args.installer and target == "windows":
+        installer_ret = make_installer()
+        if installer_ret != 0:
+            return installer_ret
+    elif args.installer and target != "windows":
+        print("[WARN] --installer 仅在 Windows 目标下有效，已跳过")
 
     dist = ROOT / "dist"
     if dist.exists():

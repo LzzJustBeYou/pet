@@ -69,9 +69,13 @@ class DesktopPet(QWidget):
 
     def initUI(self):
         # 窗口和透明设置
-        # 注意：不使用 Qt.WindowStaysOnTopHint，避免 Qt 与 ctypes 设置冲突
-        # 窗口层级完全由 _pin_macos_topmost() 通过 objc_msgSend 控制
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.Tool)
+        # - macOS: 窗口层级由 _pin_macos_topmost() 通过 objc_msgSend 控制，
+        #   不使用 Qt.WindowStaysOnTopHint，避免 Qt 与 ctypes 设置冲突
+        # - Windows/Linux: 使用 Qt.WindowStaysOnTopHint 保持顶层
+        flags = Qt.FramelessWindowHint | Qt.Tool
+        if sys.platform != "darwin":
+            flags |= Qt.WindowStaysOnTopHint
+        self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)  # 不抢焦点
         self.setAttribute(Qt.WA_MacAlwaysShowToolWindow)  # 不激活时也显示
