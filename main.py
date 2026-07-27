@@ -1,7 +1,7 @@
 import sys
 import os
-from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, qApp, QFileDialog
-from PyQt5.QtCore import Qt, QPoint, QSize, QTimer
+from PyQt5.QtWidgets import QApplication, QWidget, QLabel, QMenu, qApp, QFileDialog, QSlider, QWidgetAction, QHBoxLayout
+from PyQt5.QtCore import Qt, QPoint, QSize, QTimer, QSettings
 from PyQt5.QtGui import QMovie, QIcon
 
 
@@ -42,13 +42,28 @@ def scan_actions(actions_dir="actions"):
     return categories
 
 
+# --- 大小预设 ---
+PRESET_SIZES = {
+    "小 (80×80)": 80,
+    "中 (100×100)": 100,
+    "大 (150×150)": 150,
+    "超大 (200×200)": 200,
+}
+MIN_SIZE = 40
+MAX_SIZE = 300
+DEFAULT_SIZE = 100
+
+
 class DesktopPet(QWidget):
     def __init__(self):
         super().__init__()
 
         # --- 宠物基础设置 ---
-        self.pet_width = 100
-        self.pet_height = 100
+        self.settings = QSettings("PetApp", "DesktopPet")
+        saved_size = self.settings.value("pet/size", DEFAULT_SIZE, type=int)
+        saved_size = max(MIN_SIZE, min(MAX_SIZE, saved_size))  # 范围约束
+        self.pet_width = saved_size
+        self.pet_height = saved_size
 
         # 自动发现所有动作，默认"臭臭小八"，找不到则取第一个
         DEFAULT_PET = "臭臭小八"
@@ -95,6 +110,19 @@ class DesktopPet(QWidget):
         self.movie.setScaledSize(QSize(self.pet_width, self.pet_height))
         self.label.setMovie(self.movie)
         self.movie.start()
+
+    def set_pet_size(self, new_size):
+        """设置宠物大小并持久化"""
+        new_size = max(MIN_SIZE, min(MAX_SIZE, new_size))
+        if new_size == self.pet_width:
+            return
+        self.pet_width = new_size
+        self.pet_height = new_size
+        self.resize(new_size, new_size)
+        self.label.setFixedSize(new_size, new_size)
+        if hasattr(self, "movie") and self.movie is not None:
+            self.movie.setScaledSize(QSize(new_size, new_size))
+        self.settings.setValue("pet/size", new_size)
 
     def showEvent(self, event):
         """窗口显示后，macOS 上提升窗口层级确保永远在最顶层。"""
@@ -186,6 +214,12 @@ class DesktopPet(QWidget):
                 action.setData(gif_path)
 
         menu.addSeparator()
+
+        # --- 大小子菜单 ---
+        size_menu = menu.addMenu("大小设置")
+        self._build_size_menu(size_menu)
+
+        menu.addSeparator()
         load_action = menu.addAction("加载本地 GIF...")
         menu.addSeparator()
         quit_action = menu.addAction("退出宠物")
@@ -204,6 +238,70 @@ class DesktopPet(QWidget):
             qApp.quit()
         elif action.data() is not None:
             self.change_pet(action.data())
+
+    def _apply_preset(self, size):
+        """应用预设大小：同步滑块并更新宠物"""
+        if hasattr(self, "_size_slider"):
+            self._size_slider.setValue(size)
+
+    def _build_size_menu(self, size_menu):
+        """构建大小子菜单：预设 + 滑块 + 当前值显示"""
+        preset_sizes_rev = {v: k for k, v in PRESET_SIZES.items()}
+
+        # 预设选项（checkable）
+        group = []
+        current_size = self.pet_width
+        for label, size in PRESET_SIZES.items():
+            action = size_menu.addAction(label)
+            action.setCheckable(True)
+            action.setChecked(current_size == size)
+            action.triggered.connect(
+                lambda _, s=size: self._apply_preset(s)
+            )
+            group.append(action)
+
+        size_menu.addSeparator()
+
+        # 自定义滑块
+        slider_widget = QWidget()
+        slider_layout = QHBoxLayout(slider_widget)
+        slider_layout.setContentsMargins(8, 2, 8, 2)
+
+        slider = QSlider(Qt.Horizontal)
+        slider.setRange(MIN_SIZE, MAX_SIZE)
+        slider.setValue(current_size)
+        slider.setFixedWidth(160)
+
+        # 滑块拖动时实时更新宠物大小
+        slider.valueChanged.connect(self.set_pet_size)
+
+        # 滑块值变更时同步预设勾选状态
+        def sync_preset_checks(v):
+            for a in group:
+                a.setChecked(v in preset_sizes_rev)
+
+        slider.valueChanged.connect(sync_preset_checks)
+        slider_layout.addWidget(slider)
+        slider_action = QWidgetAction(size_menu)
+        slider_action.setDefaultWidget(slider_widget)
+        size_menu.addAction(slider_action)
+
+        size_menu.addSeparator()
+
+        # 当前尺寸标签
+        self._size_label_action = size_menu.addAction(
+            f"当前: {current_size}×{current_size}"
+        )
+        self._size_label_action.setEnabled(False)
+
+        def update_label(v):
+            self._size_label_action.setText(f"当前: {v}×{v}")
+
+        slider.valueChanged.connect(update_label)
+
+        # 保存引用：预设点击时需要同步滑块
+        self._size_slider = slider
+        self._size_presets = group
 
 
 if __name__ == "__main__":
