@@ -1,0 +1,7 @@
+{
+  "id": "xiaoba",
+  "displayName": "小八",
+  "description": "Interactive desktop pet with a blue ear cap, white rounded body, blush cheeks, tiny tail, and cheerful expression.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "object"
+}

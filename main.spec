@@ -7,6 +7,7 @@ a = Analysis(
     binaries=[],
     datas=[
         ('actions', 'actions'),
+        ('pets', 'pets'),
         ('icon.png', '.'),
     ],
     hiddenimports=[],

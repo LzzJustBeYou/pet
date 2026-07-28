@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""桌面宠物打包脚本 — 自动发现所有 GIF 资源，支持 Windows / macOS 双平台。"""
+"""桌面宠物打包脚本 — 收集内置资源并支持 Windows / macOS 双平台。"""
 
 import argparse
 import os
@@ -10,12 +10,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent
 ACTIONS_DIR = ROOT / "actions"
+PETS_DIR = ROOT / "pets"
 APP_NAME = "DesktopPet"
 
 
 def collect_add_data():
     """
-    自动扫描 actions/ 目录，为每个子目录生成 --add-data 参数。
+    收集内置 GIF 和互动宠物资源。
     PyInstaller 的格式: --add-data "源路径:目标路径"
       - Windows 用 ; 分隔
       - macOS/Linux 用 : 分隔
@@ -25,6 +26,9 @@ def collect_add_data():
 
     # 整个 actions/ 目录打包进去，PyInstaller 会保留内部结构
     args.extend(["--add-data", f"actions{sep}actions"])
+
+    if PETS_DIR.exists():
+        args.extend(["--add-data", f"pets{sep}pets"])
 
     # 图标文件
     for ext in (".png", ".ico", ".icns"):
@@ -126,7 +130,7 @@ def make_dmg():
     shutil.rmtree(staging)
 
     size = dmg_path.stat().st_size
-    print(f"[DMG] ✅ 已生成 {dmg_path} ({size / 1024 / 1024:.1f} MB)")
+    print(f"[DMG] 已生成 {dmg_path} ({size / 1024 / 1024:.1f} MB)")
     return 0
 
 
@@ -171,16 +175,16 @@ def make_installer() -> int:
     result = subprocess.run(cmd, cwd=str(ROOT))
 
     if result.returncode != 0:
-        print(f"\n❌ 安装器打包失败 (exit code: {result.returncode})")
+        print(f"\n[ERROR] 安装器打包失败 (exit code: {result.returncode})")
         return result.returncode
 
     # 产物可能在 dist/DesktopPet_Setup.exe（--onefile 直接产出 dist/ 下）
     setup_exe = ROOT / "dist" / f"{APP_NAME}_Setup.exe"
     if setup_exe.exists():
         size = setup_exe.stat().st_size
-        print(f"\n[INSTALLER] ✅ 已生成 {setup_exe.name} ({size / 1024 / 1024:.1f} MB)")
+        print(f"\n[INSTALLER] 已生成 {setup_exe.name} ({size / 1024 / 1024:.1f} MB)")
     else:
-        print("[INSTALLER] ⚠ 未找到产物文件，请查看 dist/ 目录")
+        print("[INSTALLER] 未找到产物文件，请查看 dist/ 目录")
 
     return 0
 
@@ -229,10 +233,10 @@ def main():
     ret = build(target)
 
     if ret != 0:
-        print(f"\n❌ 打包失败 (exit code: {ret})")
+        print(f"\n[ERROR] 打包失败 (exit code: {ret})")
         return ret
 
-    print(f"\n✅ 打包完成！")
+    print("\n打包完成！")
 
     # 生成 DMG（macOS）
     if args.dmg and target == "mac":

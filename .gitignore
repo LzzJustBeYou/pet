@@ -5,11 +5,21 @@
 !/main.py
 !/main.spec
 !/build.py
+!/animation.py
+!/interaction.py
+!/pet_package.py
 !/generate_icons.py
 !/icon.png
 !/icon.ico
 !/icon.icns
 !/actions
+!/actions/**
+!/pets
+!/pets/**
+!/tests
+!/tests/**
+__pycache__/
+*.py[cod]
 
 # Keep the .gitignore itself tracked
 !/.gitignore

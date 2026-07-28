@@ -1,0 +1,7 @@
+{
+  "id": "ikun-jj",
+  "displayName": "IKUN",
+  "description": "A custom Codex pet based on the IKUN basketball meme character.",
+  "spritesheetPath": "spritesheet.webp",
+  "kind": "person"
+}
