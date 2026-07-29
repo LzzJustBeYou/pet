@@ -40,7 +40,7 @@ class InteractionControllerTests(unittest.TestCase):
         update = self.controller.move(QPoint(6, 0))
 
         self.assertFalse(update.dragging)
-        self.assertEqual(self.controller.release(), "none")
+        self.assertEqual(self.controller.release(), "click")
         self.assertEqual(self.requests[-1], ("idle", True))
 
     def test_hover_animation_returns_to_idle_when_finished(self):

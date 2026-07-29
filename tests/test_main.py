@@ -27,7 +27,7 @@ class DesktopPetTests(unittest.TestCase):
             str(Path(self.temp_dir.name) / "settings.ini"),
             QSettings.IniFormat,
         )
-        self.pet = DesktopPet(settings=self.settings)
+        self.pet = DesktopPet(settings=self.settings, enable_todos=False)
 
     def tearDown(self):
         self.pet.close()
@@ -102,7 +102,7 @@ class DesktopPetTests(unittest.TestCase):
         self.settings.setValue("pet/source_key", f"external-package:{external_dir}")
 
         self.pet.close()
-        self.pet = DesktopPet(settings=self.settings)
+        self.pet = DesktopPet(settings=self.settings, enable_todos=False)
 
         self.assertEqual(self.pet.current_source_type, "package")
         self.assertEqual(self.pet.current_source_key, f"external-package:{external_dir.resolve()}")

@@ -127,7 +127,7 @@ class PetInteractionController(QObject):
                 self.animation_requested.emit("idle", True)
             return "drag"
 
-        return "none"
+        return "click"
 
     def animation_finished(self, state: str) -> None:
         if self.dragging or state != self.current_state:

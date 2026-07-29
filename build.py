@@ -11,6 +11,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 ACTIONS_DIR = ROOT / "actions"
 PETS_DIR = ROOT / "pets"
+CALENDAR_DIR = ROOT / "calendar_data"
 APP_NAME = "DesktopPet"
 
 
@@ -29,6 +30,9 @@ def collect_add_data():
 
     if PETS_DIR.exists():
         args.extend(["--add-data", f"pets{sep}pets"])
+
+    if CALENDAR_DIR.exists():
+        args.extend(["--add-data", f"calendar_data{sep}calendar_data"])
 
     # 图标文件
     for ext in (".png", ".ico", ".icns"):

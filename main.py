@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional
 
-from PyQt5.QtCore import QPoint, QSettings, QSize, Qt, QTimer
+from PyQt5.QtCore import QPoint, QSettings, QSize, Qt, QTimer, qInstallMessageHandler
 from PyQt5.QtGui import QCursor, QGuiApplication, QIcon, QMovie, QRegion
 from PyQt5.QtWidgets import (
     QApplication,
@@ -30,6 +30,32 @@ from pet_package import (
     find_pet_directories,
     load_pet_package,
 )
+from holiday_calendar import HolidayCalendar
+from todo_scheduler import TodoScheduler
+from todo_store import TodoStore
+from todo_ui import TodoManagerWindow, TodoQuickPanel, TodoReminderBubble
+
+
+_previous_qt_message_handler = None
+_qt_message_filter_installed = False
+
+
+def _qt_message_handler(message_type, context, message):
+    if message.startswith(
+        "qt.network.monitor: Could not get the INetworkConnection instance"
+    ):
+        return
+    if _previous_qt_message_handler is not None:
+        _previous_qt_message_handler(message_type, context, message)
+        return
+    print(message, file=sys.stderr)
+
+
+def install_qt_message_filter():
+    global _previous_qt_message_handler, _qt_message_filter_installed
+    if not _qt_message_filter_installed:
+        _previous_qt_message_handler = qInstallMessageHandler(_qt_message_handler)
+        _qt_message_filter_installed = True
 
 
 def resource_path(relative_path):
@@ -88,7 +114,13 @@ class PetMenuEntry:
 
 
 class DesktopPet(QWidget):
-    def __init__(self, settings=None):
+    def __init__(
+        self,
+        settings=None,
+        todo_store: Optional[TodoStore] = None,
+        holiday_calendar: Optional[HolidayCalendar] = None,
+        enable_todos: bool = True,
+    ):
         super().__init__()
         self.settings = settings or QSettings("PetApp", "DesktopPet")
         saved_size = self.settings.value("pet/size", DEFAULT_SIZE, type=int)
@@ -102,12 +134,25 @@ class DesktopPet(QWidget):
         self.current_source_key: Optional[str] = None
         self.drag_position = QPoint()
         self._interaction_region = QRegion()
+        self._base_window_region = QRegion()
+        self._base_interaction_region = QRegion()
         self._pointer_inside = False
         self._position_restored = False
         self._topmost_timer: Optional[QTimer] = None
+        self._todo_enabled = enable_todos
+        self._todo_badge_count = 0
+        self.todo_store: Optional[TodoStore] = todo_store
+        self.holiday_calendar: Optional[HolidayCalendar] = holiday_calendar
+        self.todo_scheduler: Optional[TodoScheduler] = None
+        self.todo_manager: Optional[TodoManagerWindow] = None
+        self.todo_quick_panel: Optional[TodoQuickPanel] = None
+        self.todo_bubble: Optional[TodoReminderBubble] = None
+        self._suppress_next_click_release = False
 
         self._init_ui()
         self._restore_source()
+        if self._todo_enabled:
+            self._init_todos()
 
     def _init_ui(self):
         flags = Qt.FramelessWindowHint | Qt.Tool
@@ -124,6 +169,11 @@ class DesktopPet(QWidget):
         self.label.setAttribute(Qt.WA_TransparentForMouseEvents)
         self.label.setFixedSize(self.pet_size, self.pet_size)
         self.resize(self.pet_size, self.pet_size)
+
+        self.todo_badge = QLabel(self)
+        self.todo_badge.setAlignment(Qt.AlignCenter)
+        self.todo_badge.setAttribute(Qt.WA_TransparentForMouseEvents)
+        self.todo_badge.hide()
 
         self.sprite_player = SpriteAtlasPlayer(self)
         self.sprite_player.frame_changed.connect(self.label.setPixmap)
@@ -170,14 +220,47 @@ class DesktopPet(QWidget):
     def _configure_canvas(self, size: QSize) -> None:
         self.label.setFixedSize(size)
         self.resize(size)
+        self._position_todo_badge()
 
     def _apply_regions(self, window_region: QRegion, interaction_region: QRegion):
+        self._base_window_region = QRegion(window_region)
+        self._base_interaction_region = QRegion(interaction_region)
+        self._apply_effective_regions()
+        QTimer.singleShot(0, self._sync_pointer_hit)
+
+    def _apply_effective_regions(self):
+        window_region = QRegion(self._base_window_region)
+        interaction_region = QRegion(self._base_interaction_region)
+        if hasattr(self, "todo_badge") and self.todo_badge.isVisible():
+            badge_region = QRegion(self.todo_badge.geometry(), QRegion.Ellipse)
+            window_region = window_region.united(badge_region)
+            interaction_region = interaction_region.united(badge_region)
+
         if window_region.isEmpty():
             self.clearMask()
         else:
             self.setMask(window_region)
-        self._interaction_region = QRegion(interaction_region)
-        QTimer.singleShot(0, self._sync_pointer_hit)
+        self._interaction_region = interaction_region
+
+    def _position_todo_badge(self):
+        if not hasattr(self, "todo_badge"):
+            return
+        badge_size = max(18, min(28, int(min(self.width(), self.height()) * 0.26)))
+        self.todo_badge.setFixedSize(badge_size, badge_size)
+        self.todo_badge.move(max(0, self.width() - badge_size), 0)
+        font_size = max(9, int(badge_size * 0.52))
+        self.todo_badge.setStyleSheet(
+            f"""
+            QLabel {{
+                background-color: #d93025;
+                color: white;
+                border: 1px solid white;
+                border-radius: {badge_size // 2}px;
+                font-size: {font_size}px;
+                font-weight: 700;
+            }}
+            """
+        )
 
     def _load_gif(self, gif_path, persist=True, show_error=True) -> bool:
         try:
@@ -394,10 +477,26 @@ class DesktopPet(QWidget):
             result = self.interaction.release()
             if result == "drag":
                 self._save_position()
+            elif result == "click":
+                if self._suppress_next_click_release:
+                    self._suppress_next_click_release = False
+                else:
+                    self.toggle_todo_quick_panel()
             QTimer.singleShot(0, self._sync_pointer_hit)
             event.accept()
             return
         super().mouseReleaseEvent(event)
+
+    def mouseDoubleClickEvent(self, event):
+        if (
+            event.button() == Qt.LeftButton
+            and self._interaction_region.contains(event.pos())
+        ):
+            self._suppress_next_click_release = True
+            self.open_todo_manager()
+            event.accept()
+            return
+        super().mouseDoubleClickEvent(event)
 
     def _sync_pointer_hit(self):
         local_position = self.mapFromGlobal(QCursor.pos())
@@ -703,9 +802,108 @@ class DesktopPet(QWidget):
         )
         self._size_slider = slider
 
+    def _init_todos(self):
+        try:
+            if self.todo_store is None:
+                self.todo_store = TodoStore()
+            if self.holiday_calendar is None:
+                self.holiday_calendar = HolidayCalendar()
+            self.todo_scheduler = TodoScheduler(
+                self.todo_store,
+                self.holiday_calendar,
+                self,
+            )
+            self.todo_scheduler.badge_count_changed.connect(self.set_todo_badge_count)
+            self.todo_scheduler.badge_count_changed.connect(
+                lambda _count: self._refresh_todo_manager()
+            )
+            self.todo_scheduler.reminders_claimed.connect(self._show_todo_reminders)
+            QTimer.singleShot(0, self.todo_scheduler.start)
+        except Exception as exc:
+            print(f"[DesktopPet] todo init failed: {exc}", file=sys.stderr)
+
+    def set_todo_badge_count(self, count: int):
+        self._todo_badge_count = max(0, count)
+        if self._todo_badge_count <= 0:
+            self.todo_badge.hide()
+        else:
+            self.todo_badge.setText("99+" if self._todo_badge_count > 99 else str(count))
+            self._position_todo_badge()
+            self.todo_badge.show()
+            self.todo_badge.raise_()
+        self._apply_effective_regions()
+        if self.todo_quick_panel is not None and self.todo_quick_panel.isVisible():
+            self.todo_quick_panel.refresh()
+        QTimer.singleShot(0, self._sync_pointer_hit)
+
+    def toggle_todo_quick_panel(self):
+        if not self._todo_enabled or self.todo_store is None or self.holiday_calendar is None:
+            return
+        if self.todo_quick_panel is None:
+            self.todo_quick_panel = TodoQuickPanel(
+                self.todo_store,
+                self.holiday_calendar,
+                self,
+            )
+            self.todo_quick_panel.manage_requested.connect(self.open_todo_manager)
+        self.todo_quick_panel.toggle_near(self)
+
+    def open_todo_manager(self, occurrence_id: Optional[int] = None):
+        if not self._todo_enabled or self.todo_store is None or self.holiday_calendar is None:
+            return
+        if self.todo_quick_panel is not None:
+            self.todo_quick_panel.hide()
+        if self.todo_manager is None:
+            self.todo_manager = TodoManagerWindow(
+                self.todo_store,
+                self.holiday_calendar,
+            )
+            self.todo_manager.todos_changed.connect(self._todo_data_changed)
+            self.todo_manager.calendar_changed.connect(self._todo_data_changed)
+        self.todo_manager.show()
+        self.todo_manager.raise_()
+        self.todo_manager.activateWindow()
+        if occurrence_id is not None:
+            self.todo_manager.select_occurrence(occurrence_id)
+        else:
+            self.todo_manager.refresh()
+
+    def _todo_data_changed(self):
+        if self.todo_scheduler is not None:
+            self.todo_scheduler.refresh_badge()
+        self._refresh_todo_manager()
+
+    def _refresh_todo_manager(self):
+        if self.todo_manager is not None and self.todo_manager.isVisible():
+            self.todo_manager.refresh()
+        if self.todo_quick_panel is not None and self.todo_quick_panel.isVisible():
+            self.todo_quick_panel.refresh()
+
+    def _show_todo_reminders(self, occurrences):
+        if not self._todo_enabled:
+            return
+        if self.todo_bubble is None:
+            self.todo_bubble = TodoReminderBubble(self)
+            self.todo_bubble.clicked.connect(self.open_todo_manager)
+        self.todo_bubble.show_for_occurrences(list(occurrences), self)
+
+    def closeEvent(self, event):
+        if self.todo_scheduler is not None:
+            self.todo_scheduler.stop()
+        if self.todo_manager is not None:
+            self.todo_manager.hide()
+        if self.todo_quick_panel is not None:
+            self.todo_quick_panel.hide()
+        if self.todo_bubble is not None:
+            self.todo_bubble.hide()
+        super().closeEvent(event)
+
 
 def main():
+    install_qt_message_filter()
     app = QApplication(sys.argv)
+    app.setOrganizationName("PetApp")
+    app.setApplicationName("DesktopPet")
     if sys.platform == "win32":
         icon_path = resource_path("icon.ico")
         if os.path.exists(icon_path):

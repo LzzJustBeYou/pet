@@ -60,7 +60,12 @@ class PetPackageTests(unittest.TestCase):
                 load_pet_package(package_dir)
 
     def test_finds_package_directories_one_level_below_root(self):
-        self.assertEqual(find_pet_directories(ROOT / "pets"), [BUILTIN_PET.resolve()])
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            shutil.copytree(BUILTIN_PET, root / "xiaoba")
+            (root / "not-a-pet").mkdir()
+
+            self.assertEqual(find_pet_directories(root), [(root / "xiaoba").resolve()])
 
 
 if __name__ == "__main__":
