@@ -553,7 +553,8 @@ class TodoManagerWindow(QWidget):
             )
             self._fill_list(self.completed_list, self.store.list_completed(), now)
             if restore_selection and selected_id is not None:
-                self._restore_selection(selected_id, quiet=True)
+                if not self._restore_selection(selected_id, quiet=True):
+                    self.start_new()
         finally:
             self._refreshing = False
         self._sync_editor_buttons()

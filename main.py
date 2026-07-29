@@ -31,6 +31,13 @@ from pet_package import (
     load_pet_package,
 )
 from holiday_calendar import HolidayCalendar
+from todo_models import local_now
+from todo_notifier import (
+    CALENDAR_CHANGE_KIND,
+    TODO_CHANGE_KIND,
+    TodoChangeNotifier,
+    signal_path_for_database,
+)
 from todo_scheduler import TodoScheduler
 from todo_store import TodoStore
 from todo_ui import TodoManagerWindow, TodoQuickPanel, TodoReminderBubble
@@ -144,6 +151,7 @@ class DesktopPet(QWidget):
         self.todo_store: Optional[TodoStore] = todo_store
         self.holiday_calendar: Optional[HolidayCalendar] = holiday_calendar
         self.todo_scheduler: Optional[TodoScheduler] = None
+        self.todo_notifier: Optional[TodoChangeNotifier] = None
         self.todo_manager: Optional[TodoManagerWindow] = None
         self.todo_quick_panel: Optional[TodoQuickPanel] = None
         self.todo_bubble: Optional[TodoReminderBubble] = None
@@ -835,6 +843,11 @@ class DesktopPet(QWidget):
                 lambda _count: self._refresh_todo_manager()
             )
             self.todo_scheduler.reminders_claimed.connect(self._show_todo_reminders)
+            self.todo_notifier = TodoChangeNotifier(
+                signal_path_for_database(self.todo_store.db_path),
+                self,
+            )
+            self.todo_notifier.changed.connect(self._external_todo_data_changed)
             QTimer.singleShot(0, self.todo_scheduler.start)
         except Exception as exc:
             print(f"[DesktopPet] todo init failed: {exc}", file=sys.stderr)
@@ -884,7 +897,7 @@ class DesktopPet(QWidget):
                 self.holiday_calendar,
             )
             self.todo_manager.todos_changed.connect(self._todo_data_changed)
-            self.todo_manager.calendar_changed.connect(self._todo_data_changed)
+            self.todo_manager.calendar_changed.connect(self._calendar_data_changed)
         self.todo_manager.show()
         self.todo_manager.raise_()
         self.todo_manager.activateWindow()
@@ -894,6 +907,28 @@ class DesktopPet(QWidget):
             self.todo_manager.refresh()
 
     def _todo_data_changed(self):
+        if self.todo_scheduler is not None:
+            self.todo_scheduler.refresh_badge()
+        self._refresh_todo_manager()
+        if self.todo_notifier is not None:
+            self.todo_notifier.notify_change(TODO_CHANGE_KIND)
+
+    def _calendar_data_changed(self):
+        if self.todo_scheduler is not None:
+            self.todo_scheduler.refresh_badge()
+        self._refresh_todo_manager()
+        if self.todo_notifier is not None:
+            self.todo_notifier.notify_change(CALENDAR_CHANGE_KIND)
+
+    def _external_todo_data_changed(self, kind: str):
+        if not self._todo_enabled or self.todo_store is None:
+            return
+        if kind == CALENDAR_CHANGE_KIND and self.holiday_calendar is not None:
+            try:
+                self.holiday_calendar.reload()
+                self.todo_store.materialize(local_now().date(), self.holiday_calendar)
+            except Exception as exc:
+                print(f"[DesktopPet] calendar reload failed: {exc}", file=sys.stderr)
         if self.todo_scheduler is not None:
             self.todo_scheduler.refresh_badge()
         self._refresh_todo_manager()
@@ -915,6 +950,8 @@ class DesktopPet(QWidget):
     def closeEvent(self, event):
         if self.todo_scheduler is not None:
             self.todo_scheduler.stop()
+        if self.todo_notifier is not None:
+            self.todo_notifier.stop()
         if self.todo_manager is not None:
             self.todo_manager.hide()
         if self.todo_quick_panel is not None:

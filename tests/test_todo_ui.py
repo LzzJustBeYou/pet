@@ -179,6 +179,18 @@ class TodoManagerWindowTests(unittest.TestCase):
         self.assertIn("在线检查更新", labels)
         self.assertNotIn("恢复内置日历", labels)
 
+    def test_refresh_clears_selection_when_external_delete_removes_todo(self):
+        self.window.today_list.setCurrentRow(0)
+        self.app.processEvents()
+        occurrence_id = self.window._selected_occurrence_id
+        self.assertIsNotNone(occurrence_id)
+
+        self.store.delete_occurrence_only(occurrence_id)
+        self.window.refresh()
+
+        self.assertIsNone(self.window._selected_occurrence_id)
+        self.assertEqual(self.window.title_edit.text(), "")
+
 
 if __name__ == "__main__":
     unittest.main()

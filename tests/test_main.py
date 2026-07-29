@@ -13,6 +13,8 @@ from PyQt5.QtWidgets import QApplication
 
 from holiday_calendar import HolidayCalendar
 from main import DesktopPet
+from todo_models import local_now
+from todo_notifier import TODO_CHANGE_KIND
 from todo_store import TodoStore
 
 
@@ -170,6 +172,36 @@ class DesktopPetTests(unittest.TestCase):
         self.app.processEvents()
 
         self.assertEqual(self.pet.todo_quick_panel.pos(), panel_pos + delta)
+
+    def test_external_todo_change_refreshes_badge_immediately(self):
+        store = TodoStore(Path(self.temp_dir.name) / "todo.sqlite3")
+        calendar = HolidayCalendar(
+            user_path=Path(self.temp_dir.name) / "calendar.json",
+            bundle_path=ROOT / "calendar_data" / "cn_workdays.json",
+        )
+        self.pet.close()
+        self.pet = DesktopPet(
+            settings=self.settings,
+            todo_store=store,
+            holiday_calendar=calendar,
+            enable_todos=True,
+        )
+        self.pet.show()
+        self.app.processEvents()
+        self.pet.todo_scheduler.stop()
+
+        store.add_todo(
+            "外部实例新增",
+            "",
+            local_now().date(),
+            None,
+            work_calendar=calendar,
+        )
+        self.pet._external_todo_data_changed(TODO_CHANGE_KIND)
+        self.app.processEvents()
+
+        self.assertTrue(self.pet.todo_badge.isVisible())
+        self.assertEqual(self.pet.todo_badge.text(), "1")
 
 
 if __name__ == "__main__":
