@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-from datetime import date, time
+from datetime import date, datetime, time
 from typing import Optional
 
 from PyQt5.QtCore import QDate, QPoint, QSignalBlocker, QTimer, Qt, QTime, QUrl, pyqtSignal
+from PyQt5.QtGui import QColor, QFont
 from PyQt5.QtNetwork import QNetworkAccessManager, QNetworkRequest
 from PyQt5.QtWidgets import (
     QAbstractItemView,
@@ -99,6 +100,18 @@ def snap_time_to_step(
 
 def calendar_errors_are_not_found(errors: list[str]) -> bool:
     return bool(errors) and all("not found" in error.lower() for error in errors)
+
+
+def occurrence_is_due_at(occurrence: TodoOccurrence, now: datetime) -> bool:
+    if occurrence.status == STATUS_COMPLETED:
+        return False
+    if occurrence.due_date < now.date():
+        return True
+    if occurrence.due_date > now.date():
+        return False
+    if occurrence.due_time is None:
+        return True
+    return occurrence.due_time <= now.time().replace(second=0, microsecond=0)
 
 
 class SteppedTimeEdit(QTimeEdit):
@@ -244,48 +257,47 @@ class TodoQuickPanel(QWidget):
         self._clear_items()
         try:
             occurrences = self.store.list_today(now.date(), self.work_calendar)
-            due_count = self.store.reminder_count(now, self.work_calendar)
         except Exception as exc:
             self.count_label.hide()
             self.subtitle_label.setText(f"读取待办失败：{exc}")
             return
 
-        total_count = len(occurrences)
-        if total_count:
-            self.count_label.setText("99+" if total_count > 99 else str(total_count))
+        due_occurrences = [
+            item for item in occurrences if occurrence_is_due_at(item, now)
+        ]
+        due_count = len(due_occurrences)
+        if due_count:
+            self.count_label.setText("99+" if due_count > 99 else str(due_count))
             self.count_label.show()
         else:
             self.count_label.hide()
 
-        overdue_count = sum(1 for item in occurrences if item.due_date < now.date())
-        today_count = sum(1 for item in occurrences if item.due_date == now.date())
-        upcoming_count = sum(
+        overdue_count = sum(1 for item in due_occurrences if item.due_date < now.date())
+        timed_due_count = sum(
             1
-            for item in occurrences
+            for item in due_occurrences
             if item.due_date == now.date()
             and item.due_time is not None
-            and item.due_time > now.time().replace(second=0, microsecond=0)
+            and item.due_time <= now.time().replace(second=0, microsecond=0)
         )
+        date_only_count = sum(1 for item in due_occurrences if item.due_time is None)
 
         if due_count:
-            parts = [f"{due_count} 个已到时间"]
-            if upcoming_count:
-                parts.append(f"{upcoming_count} 个稍后")
-            self.subtitle_label.setText(" · ".join(parts))
-        elif total_count:
             parts = []
+            if timed_due_count:
+                parts.append(f"{timed_due_count} 个已到时间")
             if overdue_count:
                 parts.append(f"{overdue_count} 个逾期")
-            if today_count:
-                parts.append(f"今天 {today_count} 个")
-            self.subtitle_label.setText(" · ".join(parts) or "有待办需要处理")
+            if date_only_count:
+                parts.append(f"{date_only_count} 个全天")
+            self.subtitle_label.setText(" · ".join(parts))
         else:
-            self.subtitle_label.setText("今天没有待办，安心摸鱼一小会儿。")
+            self.subtitle_label.setText("目前没有已到提醒的待办。")
 
-        for occurrence in occurrences[: self.max_items]:
+        for occurrence in due_occurrences[: self.max_items]:
             self._add_occurrence_button(occurrence, now)
 
-        remaining = total_count - self.max_items
+        remaining = due_count - self.max_items
         if remaining > 0:
             more_button = QPushButton(f"还有 {remaining} 个，打开管理页查看")
             more_button.setObjectName("quickItem")
@@ -310,7 +322,7 @@ class TodoQuickPanel(QWidget):
             return
         super().keyPressEvent(event)
 
-    def _add_occurrence_button(self, occurrence: TodoOccurrence, now) -> None:
+    def _add_occurrence_button(self, occurrence: TodoOccurrence, now: datetime) -> None:
         button = QPushButton(self._occurrence_text(occurrence, now))
         button.setObjectName("quickItem")
         button.setFocusPolicy(Qt.NoFocus)
@@ -346,14 +358,16 @@ class TodoQuickPanel(QWidget):
         return f"{prefix}  {occurrence.title}"
 
     def _position_near(self, anchor: QWidget) -> None:
-        screen = QApplication.screenAt(anchor.frameGeometry().center())
+        anchor_center = anchor.mapToGlobal(anchor.rect().center())
+        screen = QApplication.screenAt(anchor_center)
         if screen is None:
             screen = QApplication.primaryScreen()
         geometry = screen.availableGeometry() if screen is not None else None
-        target = QPoint(anchor.x() + anchor.width() + 8, anchor.y())
+        anchor_top_left = anchor.mapToGlobal(QPoint(0, 0))
+        target = QPoint(anchor_top_left.x() + anchor.width() + 8, anchor_top_left.y())
         if geometry is not None:
             if target.x() + self.width() > geometry.right():
-                target.setX(anchor.x() - self.width() - 8)
+                target.setX(anchor_top_left.x() - self.width() - 8)
             if target.y() + self.height() > geometry.bottom():
                 target.setY(geometry.bottom() - self.height())
             target.setX(max(geometry.left(), target.x()))
@@ -524,14 +538,15 @@ class TodoManagerWindow(QWidget):
         selected_id = self._selected_occurrence_id
         self._refreshing = True
         try:
-            today = local_now().date()
-            self._fill_list(self.today_list, self.store.list_today(today, self.work_calendar), today)
+            now = local_now()
+            today = now.date()
+            self._fill_list(self.today_list, self.store.list_today(today, self.work_calendar), now)
             self._fill_list(
                 self.planned_list,
                 self.store.list_planned(today, self.work_calendar),
-                today,
+                now,
             )
-            self._fill_list(self.completed_list, self.store.list_completed(), today)
+            self._fill_list(self.completed_list, self.store.list_completed(), now)
             if restore_selection and selected_id is not None:
                 self._restore_selection(selected_id, quiet=True)
         finally:
@@ -582,12 +597,18 @@ class TodoManagerWindow(QWidget):
         self,
         widget: QListWidget,
         occurrences: list[TodoOccurrence],
-        today: date,
+        now: datetime,
     ) -> None:
         widget.clear()
         for occurrence in occurrences:
-            item = QListWidgetItem(self._format_occurrence(occurrence, today))
+            item = QListWidgetItem(self._format_occurrence(occurrence, now))
             item.setData(Qt.UserRole, occurrence.id)
+            if occurrence_is_due_at(occurrence, now):
+                font = QFont(item.font())
+                font.setBold(True)
+                item.setFont(font)
+                item.setForeground(QColor("#b42318"))
+                item.setBackground(QColor("#fff1f0"))
             if occurrence.note:
                 item.setToolTip(occurrence.note)
             widget.addItem(item)
@@ -644,12 +665,20 @@ class TodoManagerWindow(QWidget):
         self._set_editor_readonly(occurrence.status == STATUS_COMPLETED)
         self._sync_editor_buttons()
 
-    def _format_occurrence(self, occurrence: TodoOccurrence, today: date) -> str:
+    def _format_occurrence(self, occurrence: TodoOccurrence, now: datetime) -> str:
+        today = now.date()
         time_text = time_to_text(occurrence.due_time)
         if occurrence.status == STATUS_COMPLETED:
             prefix = f"{occurrence.due_date.isoformat()} {time_text or '全天'}"
             return f"{prefix}  {occurrence.title}"
-        if occurrence.due_date < today:
+        if occurrence_is_due_at(occurrence, now):
+            if occurrence.due_date < today:
+                prefix = f"🔔 逾期 {occurrence.due_date.isoformat()} {time_text or '全天'}"
+            elif occurrence.due_time is None:
+                prefix = "🔔 今天"
+            else:
+                prefix = f"🔔 已到 {time_text}"
+        elif occurrence.due_date < today:
             prefix = f"逾期 {occurrence.due_date.isoformat()} {time_text or '全天'}"
         elif occurrence.due_date == today:
             prefix = time_text or "今天"
@@ -878,8 +907,6 @@ class TodoManagerWindow(QWidget):
         self.calendar_menu.addSeparator()
         update_action = self.calendar_menu.addAction("在线检查更新")
         update_action.triggered.connect(self._check_calendar_update)
-        restore_action = self.calendar_menu.addAction("恢复内置日历")
-        restore_action.triggered.connect(self._restore_bundled_calendar)
 
     def _check_calendar_update(self) -> None:
         self.calendar_button.setEnabled(False)
@@ -898,7 +925,7 @@ class TodoManagerWindow(QWidget):
                 QMessageBox.information(
                     self,
                     "在线日历尚未发布",
-                    "远端仓库还没有发布日历 JSON，当前继续使用本地内置日历。\n\n"
+                    "远端仓库还没有发布日历 JSON，当前继续使用已有日历。\n\n"
                     f"{detail}",
                 )
             else:
@@ -938,21 +965,6 @@ class TodoManagerWindow(QWidget):
             self._download_next_calendar_url()
         finally:
             reply.deleteLater()
-
-    def _restore_bundled_calendar(self) -> None:
-        try:
-            if not self.work_calendar.bundle_path.exists():
-                raise OSError(f"找不到内置日历: {self.work_calendar.bundle_path}")
-            payload = self.work_calendar.bundle_path.read_text(encoding="utf-8")
-            save_user_calendar(payload, self.work_calendar.user_path)
-            self.work_calendar.reload()
-            self.store.materialize(local_now().date(), self.work_calendar)
-            self.refresh()
-            self.calendar_changed.emit()
-            QMessageBox.information(self, "已恢复内置日历", self.work_calendar.status_text())
-        except (CalendarDataError, OSError) as exc:
-            QMessageBox.warning(self, "恢复内置日历失败", str(exc))
-
 
 class TodoReminderBubble(QWidget):
     clicked = pyqtSignal(object)

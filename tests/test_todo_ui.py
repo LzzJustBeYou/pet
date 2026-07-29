@@ -1,7 +1,7 @@
 import os
 import tempfile
 import unittest
-from datetime import timedelta, time
+from datetime import datetime, timedelta, time
 from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
@@ -43,7 +43,7 @@ class TodoManagerWindowTests(unittest.TestCase):
             "今天的事",
             "",
             today,
-            time(9, 0),
+            None,
             recurrence=RECURRENCE_NONE,
             work_calendar=self.calendar,
         )
@@ -126,6 +126,58 @@ class TodoManagerWindowTests(unittest.TestCase):
         self.assertEqual(len(opened), 1)
         self.assertIsInstance(opened[0], int)
         panel.deleteLater()
+
+    def test_quick_panel_only_lists_due_reminders(self):
+        today = local_now().date()
+        self.store.add_todo(
+            "明天再说",
+            "",
+            today + timedelta(days=1),
+            time(23, 55),
+            recurrence=RECURRENCE_NONE,
+            work_calendar=self.calendar,
+        )
+        panel = TodoQuickPanel(self.store, self.calendar, visible_ms=1000)
+        panel.refresh()
+
+        labels = [
+            panel.items_layout.itemAt(index).widget().text()
+            for index in range(panel.items_layout.count())
+        ]
+        self.assertTrue(any("今天的事" in label for label in labels))
+        self.assertFalse(any("明天再说" in label for label in labels))
+        panel.deleteLater()
+
+    def test_due_timed_todo_is_visible_in_manager_list(self):
+        today = local_now().date()
+        self.store.add_todo(
+            "到点开会",
+            "",
+            today,
+            time(10, 0),
+            recurrence=RECURRENCE_NONE,
+            work_calendar=self.calendar,
+        )
+        timed = next(
+            item
+            for item in self.store.list_today(today, self.calendar)
+            if item.title == "到点开会"
+        )
+        due_now = datetime.combine(today, time(10, 0))
+
+        self.window._fill_list(self.window.today_list, [timed], due_now)
+        item = self.window.today_list.item(0)
+
+        self.assertIn("🔔 已到 10:00", item.text())
+        self.assertTrue(item.font().bold())
+
+    def test_calendar_menu_does_not_offer_restore_bundled_calendar(self):
+        self.window._rebuild_calendar_menu()
+
+        labels = [action.text() for action in self.window.calendar_menu.actions()]
+
+        self.assertIn("在线检查更新", labels)
+        self.assertNotIn("恢复内置日历", labels)
 
 
 if __name__ == "__main__":

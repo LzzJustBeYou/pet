@@ -147,7 +147,7 @@ class DesktopPet(QWidget):
         self.todo_manager: Optional[TodoManagerWindow] = None
         self.todo_quick_panel: Optional[TodoQuickPanel] = None
         self.todo_bubble: Optional[TodoReminderBubble] = None
-        self._suppress_next_click_release = False
+        self._pressed_badge = False
 
         self._init_ui()
         self._restore_source()
@@ -446,6 +446,7 @@ class DesktopPet(QWidget):
         QTimer.singleShot(0, self._sync_pointer_hit)
 
     def leaveEvent(self, event):
+        self.unsetCursor()
         self._set_pointer_inside(False)
         super().leaveEvent(event)
 
@@ -454,14 +455,17 @@ class DesktopPet(QWidget):
             super().mousePressEvent(event)
             return
         if not self._interaction_region.contains(event.pos()):
+            self._pressed_badge = False
             event.ignore()
             return
+        self._pressed_badge = self._todo_badge_contains(event.pos())
         self._set_pointer_inside(True)
         self.drag_position = event.globalPos() - self.frameGeometry().topLeft()
         self.interaction.press(event.globalPos())
         event.accept()
 
     def mouseMoveEvent(self, event):
+        self._update_cursor_for_position(event.pos())
         if self.interaction.pressed and event.buttons() & Qt.LeftButton:
             update = self.interaction.move(event.globalPos())
             if update.dragging:
@@ -478,32 +482,34 @@ class DesktopPet(QWidget):
             if result == "drag":
                 self._save_position()
             elif result == "click":
-                if self._suppress_next_click_release:
-                    self._suppress_next_click_release = False
-                else:
+                if self._pressed_badge and self._todo_badge_contains(event.pos()):
                     self.toggle_todo_quick_panel()
+            self._pressed_badge = False
             QTimer.singleShot(0, self._sync_pointer_hit)
             event.accept()
             return
         super().mouseReleaseEvent(event)
-
-    def mouseDoubleClickEvent(self, event):
-        if (
-            event.button() == Qt.LeftButton
-            and self._interaction_region.contains(event.pos())
-        ):
-            self._suppress_next_click_release = True
-            self.open_todo_manager()
-            event.accept()
-            return
-        super().mouseDoubleClickEvent(event)
 
     def _sync_pointer_hit(self):
         local_position = self.mapFromGlobal(QCursor.pos())
         inside = self.rect().contains(local_position) and self._interaction_region.contains(
             local_position
         )
+        self._update_cursor_for_position(local_position)
         self._set_pointer_inside(inside)
+
+    def _todo_badge_contains(self, position: QPoint) -> bool:
+        return (
+            hasattr(self, "todo_badge")
+            and self.todo_badge.isVisible()
+            and self.todo_badge.geometry().contains(position)
+        )
+
+    def _update_cursor_for_position(self, position: QPoint) -> None:
+        if self._todo_badge_contains(position):
+            self.setCursor(Qt.PointingHandCursor)
+        else:
+            self.unsetCursor()
 
     def _set_pointer_inside(self, inside: bool):
         if inside == self._pointer_inside:
@@ -693,6 +699,11 @@ class DesktopPet(QWidget):
         menu = QMenu(self)
         package_actions = {}
         gif_actions = {}
+        todo_action = None
+
+        if self._todo_enabled and self.todo_store is not None and self.holiday_calendar is not None:
+            todo_action = menu.addAction("管理待办")
+            menu.addSeparator()
 
         package_menu = menu.addMenu("互动宠物")
         pet_entries = self._discover_pet_entries()
@@ -742,7 +753,9 @@ class DesktopPet(QWidget):
         selected = menu.exec_(self.mapToGlobal(event.pos()))
         if selected is None:
             return
-        if selected in package_actions:
+        if selected == todo_action:
+            self.open_todo_manager()
+        elif selected in package_actions:
             self._load_package_entry(package_actions[selected])
         elif selected in gif_actions:
             self._load_gif(gif_actions[selected])
@@ -846,7 +859,8 @@ class DesktopPet(QWidget):
                 self,
             )
             self.todo_quick_panel.manage_requested.connect(self.open_todo_manager)
-        self.todo_quick_panel.toggle_near(self)
+        anchor = self.todo_badge if self.todo_badge.isVisible() else self
+        self.todo_quick_panel.toggle_near(anchor)
 
     def open_todo_manager(self, occurrence_id: Optional[int] = None):
         if not self._todo_enabled or self.todo_store is None or self.holiday_calendar is None:

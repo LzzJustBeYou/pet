@@ -7,10 +7,13 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QSettings
+from PyQt5.QtCore import QSettings, Qt
+from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
+from holiday_calendar import HolidayCalendar
 from main import DesktopPet
+from todo_store import TodoStore
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -121,6 +124,44 @@ class DesktopPetTests(unittest.TestCase):
         self.pet._load_gif(gif_path)
 
         self.assertIsNone(self.settings.value("pet/manual_package_dirs"))
+
+    def test_todo_quick_panel_only_opens_from_badge_click(self):
+        store = TodoStore(Path(self.temp_dir.name) / "todo.sqlite3")
+        calendar = HolidayCalendar(
+            user_path=Path(self.temp_dir.name) / "calendar.json",
+            bundle_path=ROOT / "calendar_data" / "cn_workdays.json",
+        )
+        self.pet.close()
+        self.pet = DesktopPet(
+            settings=self.settings,
+            todo_store=store,
+            holiday_calendar=calendar,
+            enable_todos=True,
+        )
+        self.pet.show()
+        self.app.processEvents()
+        self.pet.todo_scheduler.stop()
+        self.pet.set_todo_badge_count(1)
+        self.app.processEvents()
+
+        badge_center = self.pet.todo_badge.geometry().center()
+        self.pet._update_cursor_for_position(badge_center)
+
+        self.assertEqual(self.pet.cursor().shape(), Qt.PointingHandCursor)
+
+        QTest.mouseClick(self.pet, Qt.LeftButton, pos=self.pet.rect().center())
+        self.app.processEvents()
+
+        self.assertTrue(
+            self.pet.todo_quick_panel is None
+            or not self.pet.todo_quick_panel.isVisible()
+        )
+
+        QTest.mouseClick(self.pet, Qt.LeftButton, pos=badge_center)
+        self.app.processEvents()
+
+        self.assertIsNotNone(self.pet.todo_quick_panel)
+        self.assertTrue(self.pet.todo_quick_panel.isVisible())
 
 
 if __name__ == "__main__":
