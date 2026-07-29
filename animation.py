@@ -245,18 +245,21 @@ def load_gif_visual(path: str, frame_limit: int = 512) -> GifVisual:
 
     frames = []
     for _ in range(frame_limit):
+        frame_rect = reader.currentImageRect()
         image = reader.read()
         if image.isNull():
             break
         if image.size() != source_size:
             canvas = _blank_union(source_size)
             painter = QPainter(canvas)
-            painter.drawImage(0, 0, image)
+            if not frame_rect.isValid() or frame_rect.isEmpty():
+                frame_rect = reader.currentImageRect()
+            x = frame_rect.x() if frame_rect.isValid() else 0
+            y = frame_rect.y() if frame_rect.isValid() else 0
+            painter.drawImage(x, y, image)
             painter.end()
             image = canvas
         frames.append(image.convertToFormat(QImage.Format_ARGB32_Premultiplied))
-        if not reader.jumpToNextImage():
-            break
     if not frames:
         raise ValueError(f"cannot decode GIF: {reader.errorString()}")
     return GifVisual(source_size, _union_images(frames, source_size))

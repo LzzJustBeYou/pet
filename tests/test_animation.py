@@ -4,9 +4,10 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
+from PyQt5.QtGui import QImageReader
 from PyQt5.QtWidgets import QApplication
 
-from animation import ANIMATION_SPECS, SpriteAtlasPlayer, scaled_canvas_size
+from animation import ANIMATION_SPECS, SpriteAtlasPlayer, load_gif_visual, scaled_canvas_size
 from pet_package import load_pet_package
 
 
@@ -40,6 +41,44 @@ class AnimationTests(unittest.TestCase):
         player.play("idle", True)
         player._timer.stop()
         self.assertEqual((frames[-1].width(), frames[-1].height()), (92, 100))
+
+    def test_gif_visual_reads_all_frames_without_manual_jump(self):
+        gif_path = ROOT / "actions" / "chikawa" / "臭臭小八.gif"
+        reader = QImageReader(str(gif_path))
+        first_frame = reader.read()
+        self.assertFalse(first_frame.isNull())
+
+        frame_count = 1
+        while True:
+            frame = reader.read()
+            if frame.isNull():
+                break
+            frame_count += 1
+
+        self.assertGreater(frame_count, 1)
+
+        def alpha_bbox(image):
+            min_x, min_y = image.width(), image.height()
+            max_x, max_y = -1, -1
+            for y in range(image.height()):
+                for x in range(image.width()):
+                    if image.pixelColor(x, y).alpha() > 0:
+                        min_x = min(min_x, x)
+                        min_y = min(min_y, y)
+                        max_x = max(max_x, x)
+                        max_y = max(max_y, y)
+            return None if max_x < 0 else (min_x, min_y, max_x + 1, max_y + 1)
+
+        visual = load_gif_visual(str(gif_path))
+        first_bbox = alpha_bbox(first_frame)
+        union_bbox = alpha_bbox(visual.union_image)
+
+        self.assertIsNotNone(first_bbox)
+        self.assertIsNotNone(union_bbox)
+        self.assertLessEqual(union_bbox[0], first_bbox[0])
+        self.assertLess(union_bbox[1], first_bbox[1])
+        self.assertGreater(union_bbox[2], first_bbox[2])
+        self.assertGreater(union_bbox[3], first_bbox[3])
 
     def test_one_shot_emits_finished_after_final_frame(self):
         package = load_pet_package(ROOT / "pets" / "xiaoba")
