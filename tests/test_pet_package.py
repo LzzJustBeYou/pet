@@ -60,7 +60,11 @@ class PetPackageTests(unittest.TestCase):
                 load_pet_package(package_dir)
 
     def test_finds_package_directories_one_level_below_root(self):
-        self.assertEqual(find_pet_directories(ROOT / "pets"), [BUILTIN_PET.resolve()])
+        directories = find_pet_directories(ROOT / "pets")
+
+        self.assertIn(BUILTIN_PET.resolve(), directories)
+        self.assertEqual(directories, sorted(directories, key=lambda item: item.name.lower()))
+        self.assertTrue(all((directory / "pet.json").is_file() for directory in directories))
 
 
 if __name__ == "__main__":
