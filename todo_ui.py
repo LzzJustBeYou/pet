@@ -252,6 +252,11 @@ class TodoQuickPanel(QWidget):
         self.raise_()
         self._hide_timer.start(self.visible_ms)
 
+    def reposition_near(self, anchor: QWidget) -> None:
+        if not self.isVisible():
+            return
+        self._position_near(anchor)
+
     def refresh(self) -> None:
         now = local_now()
         self._clear_items()

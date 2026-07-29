@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtCore import QSettings, Qt
+from PyQt5.QtCore import QPoint, QSettings, Qt
 from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
@@ -139,6 +139,7 @@ class DesktopPetTests(unittest.TestCase):
             enable_todos=True,
         )
         self.pet.show()
+        self.pet.move(120, 120)
         self.app.processEvents()
         self.pet.todo_scheduler.stop()
         self.pet.set_todo_badge_count(1)
@@ -162,6 +163,13 @@ class DesktopPetTests(unittest.TestCase):
 
         self.assertIsNotNone(self.pet.todo_quick_panel)
         self.assertTrue(self.pet.todo_quick_panel.isVisible())
+
+        panel_pos = self.pet.todo_quick_panel.pos()
+        delta = QPoint(30, 20)
+        self.pet.move(self.pet.pos() + delta)
+        self.app.processEvents()
+
+        self.assertEqual(self.pet.todo_quick_panel.pos(), panel_pos + delta)
 
 
 if __name__ == "__main__":

@@ -450,6 +450,10 @@ class DesktopPet(QWidget):
         self._set_pointer_inside(False)
         super().leaveEvent(event)
 
+    def moveEvent(self, event):
+        super().moveEvent(event)
+        self._reposition_todo_quick_panel()
+
     def mousePressEvent(self, event):
         if event.button() != Qt.LeftButton:
             super().mousePressEvent(event)
@@ -847,6 +851,7 @@ class DesktopPet(QWidget):
         self._apply_effective_regions()
         if self.todo_quick_panel is not None and self.todo_quick_panel.isVisible():
             self.todo_quick_panel.refresh()
+        self._reposition_todo_quick_panel()
         QTimer.singleShot(0, self._sync_pointer_hit)
 
     def toggle_todo_quick_panel(self):
@@ -861,6 +866,12 @@ class DesktopPet(QWidget):
             self.todo_quick_panel.manage_requested.connect(self.open_todo_manager)
         anchor = self.todo_badge if self.todo_badge.isVisible() else self
         self.todo_quick_panel.toggle_near(anchor)
+
+    def _reposition_todo_quick_panel(self):
+        if self.todo_quick_panel is None or not self.todo_quick_panel.isVisible():
+            return
+        anchor = self.todo_badge if self.todo_badge.isVisible() else self
+        self.todo_quick_panel.reposition_near(anchor)
 
     def open_todo_manager(self, occurrence_id: Optional[int] = None):
         if not self._todo_enabled or self.todo_store is None or self.holiday_calendar is None:
