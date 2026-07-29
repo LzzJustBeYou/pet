@@ -5,6 +5,7 @@
 !/main.py
 !/main.spec
 !/build.py
+!/installer.py
 !/animation.py
 !/interaction.py
 !/pet_package.py
