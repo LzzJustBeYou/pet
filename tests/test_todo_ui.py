@@ -73,6 +73,7 @@ class TodoManagerWindowTests(unittest.TestCase):
         self.app.processEvents()
         self.assertIsNotNone(self.window._selected_occurrence_id)
 
+        self.assertEqual(self.window.tabs.tabText(1), "便签")
         tab_bar = self.window.tabs.tabBar()
         QTest.mouseClick(
             tab_bar,
@@ -93,6 +94,28 @@ class TodoManagerWindowTests(unittest.TestCase):
 
         self.assertEqual(self.window.tabs.currentIndex(), 2)
         self.assertIsNone(self.window._selected_occurrence_id)
+
+    def test_undated_toggle_saves_note_without_due_controls(self):
+        self.window.start_new()
+        self.window.title_edit.setText("没有日期的想法")
+        self.window.has_time_check.setChecked(True)
+        self.window.no_date_check.setChecked(True)
+        self.app.processEvents()
+
+        self.assertFalse(self.window.date_edit.isEnabled())
+        self.assertFalse(self.window.has_time_check.isChecked())
+        self.assertFalse(self.window.has_time_check.isEnabled())
+        self.assertFalse(self.window.recurrence_combo.isEnabled())
+        self.assertFalse(self.window.skip_holidays_check.isEnabled())
+
+        self.window._save()
+        self.app.processEvents()
+
+        notes = self.store.list_undated()
+        self.assertEqual([item.title for item in notes], ["没有日期的想法"])
+        self.assertIsNone(notes[0].due_date)
+        self.assertEqual(self.window.undated_list.count(), 1)
+        self.assertIn("无日期", self.window.undated_list.item(0).text())
 
     def test_time_values_snap_to_five_minute_steps(self):
         self.assertEqual(snap_time_to_step(time(14, 0)), time(14, 0))
@@ -129,6 +152,7 @@ class TodoManagerWindowTests(unittest.TestCase):
 
     def test_quick_panel_only_lists_due_reminders(self):
         today = local_now().date()
+        self.store.add_todo("只是便签", "", None, None)
         self.store.add_todo(
             "明天再说",
             "",
@@ -145,6 +169,7 @@ class TodoManagerWindowTests(unittest.TestCase):
             for index in range(panel.items_layout.count())
         ]
         self.assertTrue(any("今天的事" in label for label in labels))
+        self.assertFalse(any("只是便签" in label for label in labels))
         self.assertFalse(any("明天再说" in label for label in labels))
         panel.deleteLater()
 

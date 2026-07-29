@@ -36,6 +36,12 @@ def date_to_text(value: date) -> str:
     return value.isoformat()
 
 
+def optional_date_to_text(value: Optional[date]) -> str:
+    if value is None:
+        return ""
+    return date_to_text(value)
+
+
 def time_to_text(value: Optional[time]) -> Optional[str]:
     if value is None:
         return None
@@ -50,6 +56,12 @@ def datetime_to_text(value: Optional[datetime]) -> Optional[str]:
 
 def text_to_date(value: str) -> date:
     return date.fromisoformat(value)
+
+
+def text_to_optional_date(value: Optional[str]) -> Optional[date]:
+    if not value:
+        return None
+    return text_to_date(value)
 
 
 def text_to_time(value: Optional[str]) -> Optional[time]:
@@ -75,7 +87,7 @@ class TodoSeries:
     id: int
     title: str
     note: str
-    start_date: date
+    start_date: Optional[date]
     due_time: Optional[time]
     recurrence: str
     interval_days: int
@@ -95,7 +107,7 @@ class TodoOccurrence:
     series_id: int
     title: str
     note: str
-    due_date: date
+    due_date: Optional[date]
     due_time: Optional[time]
     status: str
     completed_at: Optional[datetime]
@@ -117,6 +129,11 @@ class TodoOccurrence:
         return self.due_time is not None
 
     @property
+    def has_date(self) -> bool:
+        return self.due_date is not None
+
+    @property
     def due_sort_key(self) -> tuple[str, str]:
-        return (date_to_text(self.due_date), time_to_text(self.due_time) or "99:99")
+        date_text = date_to_text(self.due_date) if self.due_date is not None else "9999-12-31"
+        return (date_text, time_to_text(self.due_time) or "99:99")
 

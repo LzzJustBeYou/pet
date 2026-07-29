@@ -4,8 +4,8 @@ from datetime import date, datetime, time
 from pathlib import Path
 
 from holiday_calendar import HolidayCalendar
-from todo_models import RECURRENCE_DAILY, RECURRENCE_EVERY_N_DAYS
-from todo_store import TodoStore
+from todo_models import RECURRENCE_DAILY, RECURRENCE_EVERY_N_DAYS, RECURRENCE_NONE
+from todo_store import TodoStore, TodoValidationError
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -52,6 +52,85 @@ class TodoStoreTests(unittest.TestCase):
             self.store.reminder_count(datetime(2026, 7, 29, 15, 0), self.calendar),
             1,
         )
+
+    def test_undated_todo_is_only_listed_as_note_and_never_due(self):
+        today = date(2026, 7, 29)
+        self.store.add_todo("随手记", "没有截止时间", None, None)
+
+        notes = self.store.list_undated()
+
+        self.assertEqual(len(notes), 1)
+        self.assertIsNone(notes[0].due_date)
+        self.assertEqual(self.store.list_today(today, self.calendar), [])
+        self.assertEqual(self.store.list_planned(today, self.calendar), [])
+        self.assertEqual(self.store.badge_count(today, self.calendar), 0)
+        self.assertEqual(
+            self.store.reminder_count(datetime(2026, 7, 29, 23, 59), self.calendar),
+            0,
+        )
+        self.assertEqual(
+            self.store.claim_due_reminders(
+                datetime(2026, 7, 29, 23, 59),
+                self.calendar,
+            ),
+            [],
+        )
+
+        self.store.complete_occurrence(notes[0].id)
+        self.assertEqual(self.store.list_undated(), [])
+        completed = self.store.list_completed()
+        self.assertEqual(len(completed), 1)
+        self.assertIsNone(completed[0].due_date)
+
+        self.store.restore_occurrence(completed[0].id)
+        self.assertEqual([item.title for item in self.store.list_undated()], ["随手记"])
+
+    def test_todo_can_convert_between_undated_and_dated(self):
+        today = date(2026, 7, 29)
+        self.store.add_todo("以后再看", "", None, None)
+        note = self.store.list_undated()[0]
+
+        self.store.update_current_and_future(
+            note.id,
+            note.title,
+            note.note,
+            today,
+            None,
+            RECURRENCE_NONE,
+            1,
+            False,
+            self.calendar,
+        )
+
+        self.assertEqual(self.store.list_undated(), [])
+        dated = self.store.list_today(today, self.calendar)[0]
+        self.assertEqual(dated.title, "以后再看")
+
+        self.store.update_current_and_future(
+            dated.id,
+            dated.title,
+            dated.note,
+            None,
+            None,
+            RECURRENCE_NONE,
+            1,
+            False,
+            self.calendar,
+        )
+
+        self.assertEqual(self.store.list_today(today, self.calendar), [])
+        self.assertEqual([item.title for item in self.store.list_undated()], ["以后再看"])
+
+    def test_undated_todo_cannot_repeat(self):
+        with self.assertRaisesRegex(TodoValidationError, "无日期待办不能设置重复"):
+            self.store.add_todo(
+                "没有起始日的重复事项",
+                "",
+                None,
+                time(9, 0),
+                recurrence=RECURRENCE_DAILY,
+                work_calendar=self.calendar,
+            )
 
     def test_recurring_occurrences_accumulate_independently(self):
         self.store.add_todo(

@@ -52,6 +52,9 @@ def occurrence_dates_until(
     include_next_future: bool = True,
 ) -> list[date]:
     """Return materialized dates due through through_date, plus one future date."""
+    if series.start_date is None:
+        return []
+
     values = []
     seen = set()
 

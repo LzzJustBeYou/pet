@@ -105,6 +105,8 @@ def calendar_errors_are_not_found(errors: list[str]) -> bool:
 def occurrence_is_due_at(occurrence: TodoOccurrence, now: datetime) -> bool:
     if occurrence.status == STATUS_COMPLETED:
         return False
+    if occurrence.due_date is None:
+        return False
     if occurrence.due_date < now.date():
         return True
     if occurrence.due_date > now.date():
@@ -277,7 +279,11 @@ class TodoQuickPanel(QWidget):
         else:
             self.count_label.hide()
 
-        overdue_count = sum(1 for item in due_occurrences if item.due_date < now.date())
+        overdue_count = sum(
+            1
+            for item in due_occurrences
+            if item.due_date is not None and item.due_date < now.date()
+        )
         timed_due_count = sum(
             1
             for item in due_occurrences
@@ -350,6 +356,8 @@ class TodoQuickPanel(QWidget):
         self.manage_requested.emit(occurrence_id)
 
     def _occurrence_text(self, occurrence: TodoOccurrence, now) -> str:
+        if occurrence.due_date is None:
+            return f"便签  {occurrence.title}"
         if occurrence.due_date < now.date():
             prefix = occurrence.due_date.strftime("逾期 %m-%d")
         elif occurrence.due_time is None:
@@ -438,9 +446,11 @@ class TodoManagerWindow(QWidget):
         left_layout.setContentsMargins(0, 0, 0, 0)
         self.tabs = QTabWidget()
         self.today_list = self._make_list()
+        self.undated_list = self._make_list()
         self.planned_list = self._make_list()
         self.completed_list = self._make_list()
         self.tabs.addTab(self.today_list, "今天")
+        self.tabs.addTab(self.undated_list, "便签")
         self.tabs.addTab(self.planned_list, "计划")
         self.tabs.addTab(self.completed_list, "已完成")
         self.tabs.currentChanged.connect(self._tab_changed)
@@ -469,6 +479,9 @@ class TodoManagerWindow(QWidget):
         self.date_edit.setMinimumDate(QDate(2000, 1, 1))
         self.date_edit.setMaximumDate(QDate(9999, 12, 31))
         due_row.addWidget(self.date_edit)
+        self.no_date_check = QCheckBox("无日期")
+        self.no_date_check.toggled.connect(self._sync_date_controls)
+        due_row.addWidget(self.no_date_check)
         self.has_time_check = QCheckBox("时间")
         self.has_time_check.toggled.connect(self._sync_time_enabled)
         due_row.addWidget(self.has_time_check)
@@ -527,7 +540,7 @@ class TodoManagerWindow(QWidget):
         self.splitter.setSizes([310, 470])
 
         self._sync_recurrence_controls()
-        self._sync_time_enabled(self.has_time_check.isChecked())
+        self._sync_date_controls(self.no_date_check.isChecked())
         self._rebuild_calendar_menu()
 
     def _make_list(self) -> QListWidget:
@@ -546,6 +559,7 @@ class TodoManagerWindow(QWidget):
             now = local_now()
             today = now.date()
             self._fill_list(self.today_list, self.store.list_today(today, self.work_calendar), now)
+            self._fill_list(self.undated_list, self.store.list_undated(), now)
             self._fill_list(
                 self.planned_list,
                 self.store.list_planned(today, self.work_calendar),
@@ -573,6 +587,7 @@ class TodoManagerWindow(QWidget):
         self.title_edit.clear()
         self.note_edit.clear()
         self.date_edit.setDate(_to_qdate(now.date()))
+        self.no_date_check.setChecked(False)
         self.has_time_check.setChecked(False)
         self.time_edit.setTime(_to_qtime(None))
         self.recurrence_combo.setCurrentIndex(0)
@@ -621,7 +636,7 @@ class TodoManagerWindow(QWidget):
 
     def _restore_selection(self, occurrence_id: int, quiet: bool = False) -> bool:
         for index, widget in enumerate(
-            (self.today_list, self.planned_list, self.completed_list)
+            (self.today_list, self.undated_list, self.planned_list, self.completed_list)
         ):
             for row in range(widget.count()):
                 item = widget.item(row)
@@ -638,7 +653,12 @@ class TodoManagerWindow(QWidget):
         return False
 
     def _clear_list_selection(self) -> None:
-        for widget in (self.today_list, self.planned_list, self.completed_list):
+        for widget in (
+            self.today_list,
+            self.undated_list,
+            self.planned_list,
+            self.completed_list,
+        ):
             blocker = QSignalBlocker(widget)
             try:
                 widget.clearSelection()
@@ -661,7 +681,8 @@ class TodoManagerWindow(QWidget):
         self._selected_occurrence_id = occurrence.id
         self.title_edit.setText(occurrence.title)
         self.note_edit.setPlainText(occurrence.note)
-        self.date_edit.setDate(_to_qdate(occurrence.due_date))
+        self.no_date_check.setChecked(occurrence.due_date is None)
+        self.date_edit.setDate(_to_qdate(occurrence.due_date or local_now().date()))
         self.has_time_check.setChecked(occurrence.due_time is not None)
         self.time_edit.setTime(_to_qtime(occurrence.due_time))
         self._set_recurrence(occurrence.recurrence)
@@ -674,6 +695,8 @@ class TodoManagerWindow(QWidget):
     def _format_occurrence(self, occurrence: TodoOccurrence, now: datetime) -> str:
         today = now.date()
         time_text = time_to_text(occurrence.due_time)
+        if occurrence.due_date is None:
+            return f"无日期  {occurrence.title}"
         if occurrence.status == STATUS_COMPLETED:
             prefix = f"{occurrence.due_date.isoformat()} {time_text or '全天'}"
             return f"{prefix}  {occurrence.title}"
@@ -700,7 +723,21 @@ class TodoManagerWindow(QWidget):
         self.recurrence_combo.setCurrentIndex(0)
 
     def _sync_time_enabled(self, enabled: bool) -> None:
-        self.time_edit.setEnabled(enabled and self.title_edit.isEnabled())
+        date_controls_enabled = (
+            self.title_edit.isEnabled() and not self.no_date_check.isChecked()
+        )
+        self.has_time_check.setEnabled(date_controls_enabled)
+        self.time_edit.setEnabled(enabled and date_controls_enabled)
+
+    def _sync_date_controls(self, undated: bool) -> None:
+        if undated:
+            self.has_time_check.setChecked(False)
+            self._set_recurrence(RECURRENCE_NONE)
+            self.skip_holidays_check.setChecked(False)
+        self.date_edit.setEnabled(self.title_edit.isEnabled() and not undated)
+        self._sync_time_enabled(self.has_time_check.isChecked())
+        self._sync_recurrence_controls()
+        self._sync_calendar_limits()
 
     def _sync_recurrence_controls(self) -> None:
         recurrence = self.recurrence_combo.currentData()
@@ -718,7 +755,12 @@ class TodoManagerWindow(QWidget):
         is_recurring = bool(occurrence and occurrence.is_recurring)
         self.scope_combo.setVisible(is_recurring and occurrence.status != STATUS_COMPLETED)
         single = self.scope_combo.currentData() == "single"
-        recurrence_enabled = not single and self.title_edit.isEnabled()
+        if is_recurring and single and self.no_date_check.isChecked():
+            self.no_date_check.setChecked(False)
+        editor_enabled = self.title_edit.isEnabled()
+        undated = self.no_date_check.isChecked()
+        self.no_date_check.setEnabled(editor_enabled and not (is_recurring and single))
+        recurrence_enabled = not single and editor_enabled and not undated
         self.recurrence_combo.setEnabled(recurrence_enabled)
         self.interval_spin.setEnabled(recurrence_enabled)
         self.skip_holidays_check.setEnabled(recurrence_enabled)
@@ -754,6 +796,7 @@ class TodoManagerWindow(QWidget):
             self.title_edit,
             self.note_edit,
             self.date_edit,
+            self.no_date_check,
             self.has_time_check,
             self.time_edit,
             self.recurrence_combo,
@@ -762,26 +805,31 @@ class TodoManagerWindow(QWidget):
             self.scope_combo,
         ):
             widget.setEnabled(enabled)
-        self._sync_time_enabled(self.has_time_check.isChecked())
+        self._sync_date_controls(self.no_date_check.isChecked())
 
     def _form_values(self):
         title = self.title_edit.text().strip()
         note = self.note_edit.toPlainText()
-        due_date = _from_qdate(self.date_edit.date())
-        due_time = (
-            snap_time_to_step(_from_qtime(self.time_edit.time()))
-            if self.has_time_check.isChecked()
-            else None
-        )
+        undated = self.no_date_check.isChecked()
+        due_date = None if undated else _from_qdate(self.date_edit.date())
+        due_time = None
+        if not undated and self.has_time_check.isChecked():
+            due_time = snap_time_to_step(_from_qtime(self.time_edit.time()))
         if due_time is not None:
             self.time_edit.setTime(QTime(due_time.hour, due_time.minute))
-        recurrence = self.recurrence_combo.currentData()
-        interval_days = self.interval_spin.value()
-        skip_holidays = self.skip_holidays_check.isChecked()
+        recurrence = RECURRENCE_NONE if undated else self.recurrence_combo.currentData()
+        interval_days = 1 if undated else self.interval_spin.value()
+        skip_holidays = False if undated else self.skip_holidays_check.isChecked()
         return title, note, due_date, due_time, recurrence, interval_days, skip_holidays
 
-    def _validate_new_due_time(self, due_date: date, due_time: Optional[time]) -> None:
+    def _validate_new_due_time(
+        self,
+        due_date: Optional[date],
+        due_time: Optional[time],
+    ) -> None:
         if self._selected_occurrence_id is not None:
+            return
+        if due_date is None:
             return
         now = local_now()
         if due_date < now.date():
@@ -1050,6 +1098,8 @@ class TodoReminderBubble(QWidget):
         super().mousePressEvent(event)
 
     def _time_text(self, occurrence: TodoOccurrence) -> str:
+        if occurrence.due_date is None:
+            return "无日期"
         value = time_to_text(occurrence.due_time) or "全天"
         return f"{occurrence.due_date.isoformat()} {value}"
 

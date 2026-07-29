@@ -24,8 +24,9 @@ from todo_models import (
     datetime_to_text,
     local_now,
     normalize_recurrence,
-    text_to_date,
+    optional_date_to_text,
     text_to_datetime,
+    text_to_optional_date,
     text_to_time,
     time_to_text,
 )
@@ -110,7 +111,7 @@ class TodoStore:
         self,
         title: str,
         note: str,
-        due_date: date,
+        due_date: Optional[date],
         due_time: Optional[time],
         recurrence: str = RECURRENCE_NONE,
         interval_days: int = 1,
@@ -122,9 +123,16 @@ class TodoStore:
             raise TodoValidationError("标题不能为空")
         recurrence = normalize_recurrence(recurrence)
         interval_days = self._normalize_interval(recurrence, interval_days)
+        if due_date is None:
+            if recurrence != RECURRENCE_NONE:
+                raise TodoValidationError("无日期待办不能设置重复")
+            if due_time is not None:
+                raise TodoValidationError("无日期待办不能设置时间")
+            if skip_holidays:
+                raise TodoValidationError("无日期待办不能跳过节假日")
         if recurrence != RECURRENCE_NONE and due_time is None:
             raise TodoValidationError("重复任务必须设置时间")
-        if skip_holidays:
+        if skip_holidays and due_date is not None:
             calendar = work_calendar or HolidayCalendar()
             if not calendar.is_covered(due_date):
                 raise TodoValidationError("跳过节假日的任务日期必须在已加载日历范围内")
@@ -142,7 +150,7 @@ class TodoStore:
                 (
                     title,
                     note or "",
-                    date_to_text(due_date),
+                    optional_date_to_text(due_date),
                     time_to_text(due_time) or "",
                     recurrence,
                     interval_days,
@@ -185,7 +193,7 @@ class TodoStore:
             rows = conn.execute(
                 self._occurrence_select()
                 + """
-                WHERE o.status = ? AND o.due_date <= ?
+                WHERE o.status = ? AND o.due_date <> '' AND o.due_date <= ?
                 ORDER BY o.due_date ASC, o.due_time ASC
                 """,
                 (STATUS_PENDING, date_to_text(today)),
@@ -203,10 +211,22 @@ class TodoStore:
             rows = conn.execute(
                 self._occurrence_select()
                 + """
-                WHERE o.status = ? AND o.due_date > ?
+                WHERE o.status = ? AND o.due_date <> '' AND o.due_date > ?
                 ORDER BY o.due_date ASC, o.due_time ASC
                 """,
                 (STATUS_PENDING, date_to_text(today)),
+            ).fetchall()
+        return [self._occurrence_from_row(row) for row in rows]
+
+    def list_undated(self) -> list[TodoOccurrence]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                self._occurrence_select()
+                + """
+                WHERE o.status = ? AND o.due_date = ''
+                ORDER BY o.created_at DESC, o.id DESC
+                """,
+                (STATUS_PENDING,),
             ).fetchall()
         return [self._occurrence_from_row(row) for row in rows]
 
@@ -234,7 +254,7 @@ class TodoStore:
                 """
                 SELECT COUNT(*) AS count
                 FROM todo_occurrences
-                WHERE status = ? AND due_date <= ?
+                WHERE status = ? AND due_date <> '' AND due_date <= ?
                 """,
                 (STATUS_PENDING, date_to_text(today)),
             ).fetchone()
@@ -254,6 +274,7 @@ class TodoStore:
                 SELECT COUNT(*) AS count
                 FROM todo_occurrences
                 WHERE status = ?
+                  AND due_date <> ''
                   AND (
                     due_date < ?
                     OR (
@@ -359,15 +380,33 @@ class TodoStore:
         occurrence_id: int,
         title: str,
         note: str,
-        due_date: date,
+        due_date: Optional[date],
         due_time: Optional[time],
     ) -> None:
         title = title.strip()
         if not title:
             raise TodoValidationError("标题不能为空")
+        if due_date is None and due_time is not None:
+            raise TodoValidationError("无日期待办不能设置时间")
         now_text = datetime_to_text(local_now())
         try:
             with self._connect() as conn:
+                current = conn.execute(
+                    """
+                    SELECT s.recurrence AS recurrence
+                    FROM todo_occurrences o
+                    JOIN todo_series s ON s.id = o.series_id
+                    WHERE o.id = ?
+                    """,
+                    (occurrence_id,),
+                ).fetchone()
+                if current is None:
+                    return
+                if (
+                    due_date is None
+                    and normalize_recurrence(str(current["recurrence"])) != RECURRENCE_NONE
+                ):
+                    raise TodoValidationError("重复待办不能设置为无日期")
                 conn.execute(
                     """
                     UPDATE todo_occurrences
@@ -378,7 +417,7 @@ class TodoStore:
                     (
                         title,
                         note or "",
-                        date_to_text(due_date),
+                        optional_date_to_text(due_date),
                         time_to_text(due_time) or "",
                         now_text,
                         occurrence_id,
@@ -393,7 +432,7 @@ class TodoStore:
         occurrence_id: int,
         title: str,
         note: str,
-        due_date: date,
+        due_date: Optional[date],
         due_time: Optional[time],
         recurrence: str,
         interval_days: int,
@@ -405,9 +444,16 @@ class TodoStore:
             raise TodoValidationError("标题不能为空")
         recurrence = normalize_recurrence(recurrence)
         interval_days = self._normalize_interval(recurrence, interval_days)
+        if due_date is None:
+            if recurrence != RECURRENCE_NONE:
+                raise TodoValidationError("无日期待办不能设置重复")
+            if due_time is not None:
+                raise TodoValidationError("无日期待办不能设置时间")
+            if skip_holidays:
+                raise TodoValidationError("无日期待办不能跳过节假日")
         if recurrence != RECURRENCE_NONE and due_time is None:
             raise TodoValidationError("重复任务必须设置时间")
-        if skip_holidays:
+        if skip_holidays and due_date is not None:
             calendar = work_calendar or HolidayCalendar()
             if not calendar.is_covered(due_date):
                 raise TodoValidationError("跳过节假日的任务日期必须在已加载日历范围内")
@@ -434,7 +480,7 @@ class TodoStore:
                 (
                     title,
                     note or "",
-                    date_to_text(due_date),
+                    optional_date_to_text(due_date),
                     time_to_text(due_time) or "",
                     recurrence,
                     interval_days,
@@ -491,6 +537,7 @@ class TodoStore:
                 SELECT id
                 FROM todo_occurrences
                 WHERE status = ?
+                  AND due_date <> ''
                   AND due_time <> ''
                   AND notified_at IS NULL
                   AND (
@@ -541,6 +588,9 @@ class TodoStore:
         work_calendar: HolidayCalendar,
         resurrect: bool = False,
     ) -> None:
+        if series.start_date is None:
+            self._insert_occurrence_in_conn(conn, series, None, resurrect=resurrect)
+            return
         for due_date in occurrence_dates_until(series, through_date, work_calendar):
             self._insert_occurrence_in_conn(conn, series, due_date, resurrect=resurrect)
 
@@ -548,7 +598,7 @@ class TodoStore:
         self,
         conn: sqlite3.Connection,
         series: TodoSeries,
-        due_date: date,
+        due_date: Optional[date],
         resurrect: bool = False,
     ) -> None:
         now_text = datetime_to_text(local_now())
@@ -565,7 +615,7 @@ class TodoStore:
                 series.id,
                 series.title,
                 series.note,
-                date_to_text(due_date),
+                optional_date_to_text(due_date),
                 due_time,
                 STATUS_PENDING,
                 now_text,
@@ -585,12 +635,12 @@ class TodoStore:
                 (
                     series.title,
                     series.note,
-                    date_to_text(due_date),
+                    optional_date_to_text(due_date),
                     due_time,
                     STATUS_PENDING,
                     now_text,
                     series.id,
-                    date_to_text(due_date),
+                    optional_date_to_text(due_date),
                     due_time,
                     STATUS_DELETED,
                 ),
@@ -621,7 +671,7 @@ class TodoStore:
             id=int(row["id"]),
             title=str(row["title"]),
             note=str(row["note"] or ""),
-            start_date=text_to_date(row["start_date"]),
+            start_date=text_to_optional_date(row["start_date"]),
             due_time=text_to_time(row["due_time"]),
             recurrence=normalize_recurrence(str(row["recurrence"])),
             interval_days=int(row["interval_days"] or 1),
@@ -637,7 +687,7 @@ class TodoStore:
             series_id=int(row["series_id"]),
             title=str(row["title"]),
             note=str(row["note"] or ""),
-            due_date=text_to_date(row["due_date"]),
+            due_date=text_to_optional_date(row["due_date"]),
             due_time=text_to_time(row["due_time"]),
             status=str(row["status"]),
             completed_at=text_to_datetime(row["completed_at"]),
@@ -675,7 +725,9 @@ class TodoStore:
             """
 
     def _today_sort_key(self, occurrence: TodoOccurrence, today: date) -> tuple:
-        if occurrence.due_date < today:
+        if occurrence.due_date is None:
+            group = 3
+        elif occurrence.due_date < today:
             group = 0
         elif occurrence.due_time is not None:
             group = 1
@@ -683,7 +735,7 @@ class TodoStore:
             group = 2
         return (
             group,
-            date_to_text(occurrence.due_date),
+            optional_date_to_text(occurrence.due_date),
             time_to_text(occurrence.due_time) or "99:99",
             occurrence.id,
         )
