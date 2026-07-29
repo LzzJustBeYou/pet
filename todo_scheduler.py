@@ -10,6 +10,9 @@ from todo_models import TodoOccurrence, local_now
 from todo_store import TodoStore
 
 
+DEFAULT_POLL_INTERVAL_MS = 60000
+
+
 class TodoScheduler(QObject):
     badge_count_changed = pyqtSignal(int)
     reminders_claimed = pyqtSignal(object)
@@ -19,7 +22,7 @@ class TodoScheduler(QObject):
         store: TodoStore,
         work_calendar: HolidayCalendar,
         parent=None,
-        interval_ms: int = 15000,
+        interval_ms: int = DEFAULT_POLL_INTERVAL_MS,
     ):
         super().__init__(parent)
         self.store = store
