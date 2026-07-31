@@ -11,8 +11,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from holiday_calendar import HolidayCalendar
-from todo_models import RECURRENCE_NONE
-from todo_models import local_now
+from todo_models import RECURRENCE_DAILY, RECURRENCE_NONE, local_now
 from todo_store import TodoStore
 from todo_ui import (
     TodoManagerWindow,
@@ -122,6 +121,26 @@ class TodoManagerWindowTests(unittest.TestCase):
         self.assertEqual(snap_time_to_step(time(14, 1)), time(14, 5))
         self.assertEqual(snap_time_to_step(time(14, 5)), time(14, 5))
         self.assertEqual(snap_time_to_step(time(23, 59)), time(23, 55))
+
+    def test_recurring_todo_can_be_saved_without_time(self):
+        self.window.start_new()
+        self.window.title_edit.setText("每日整理")
+        recurrence_index = self.window.recurrence_combo.findData(RECURRENCE_DAILY)
+        self.window.recurrence_combo.setCurrentIndex(recurrence_index)
+        self.app.processEvents()
+
+        self.assertFalse(self.window.has_time_check.isChecked())
+
+        self.window._save()
+        self.app.processEvents()
+
+        occurrence = next(
+            item
+            for item in self.store.list_today(local_now().date(), self.calendar)
+            if item.title == "每日整理"
+        )
+        self.assertEqual(occurrence.recurrence, RECURRENCE_DAILY)
+        self.assertIsNone(occurrence.due_time)
 
     def test_calendar_update_not_found_errors_are_classified(self):
         self.assertTrue(

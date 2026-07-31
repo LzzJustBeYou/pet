@@ -130,8 +130,6 @@ class TodoStore:
                 raise TodoValidationError("无日期待办不能设置时间")
             if skip_holidays:
                 raise TodoValidationError("无日期待办不能跳过节假日")
-        if recurrence != RECURRENCE_NONE and due_time is None:
-            raise TodoValidationError("重复任务必须设置时间")
         if skip_holidays and due_date is not None:
             calendar = work_calendar or HolidayCalendar()
             if not calendar.is_covered(due_date):
@@ -451,8 +449,6 @@ class TodoStore:
                 raise TodoValidationError("无日期待办不能设置时间")
             if skip_holidays:
                 raise TodoValidationError("无日期待办不能跳过节假日")
-        if recurrence != RECURRENCE_NONE and due_time is None:
-            raise TodoValidationError("重复任务必须设置时间")
         if skip_holidays and due_date is not None:
             calendar = work_calendar or HolidayCalendar()
             if not calendar.is_covered(due_date):

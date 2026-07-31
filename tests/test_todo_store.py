@@ -148,6 +148,71 @@ class TodoStoreTests(unittest.TestCase):
         self.store.complete_occurrence(occurrences[0].id)
         self.assertEqual(self.store.badge_count(today, self.calendar), 1)
 
+    def test_date_only_recurring_todo_materializes_without_claiming_reminders(self):
+        today = date(2026, 7, 29)
+        self.store.add_todo(
+            "每日整理",
+            "",
+            today,
+            None,
+            recurrence=RECURRENCE_DAILY,
+            work_calendar=self.calendar,
+        )
+
+        occurrences = self.store.list_today(today, self.calendar)
+        planned = self.store.list_planned(today, self.calendar)
+
+        self.assertEqual([item.due_date for item in occurrences], [today])
+        self.assertIsNone(occurrences[0].due_time)
+        self.assertEqual(planned[0].due_date, date(2026, 7, 30))
+        self.assertTrue(all(item.due_time is None for item in planned))
+        self.assertEqual(
+            self.store.reminder_count(datetime(2026, 7, 29, 0, 0), self.calendar),
+            1,
+        )
+        self.assertEqual(
+            self.store.claim_due_reminders(
+                datetime(2026, 7, 29, 23, 59),
+                self.calendar,
+            ),
+            [],
+        )
+
+    def test_recurring_series_can_be_updated_to_date_only(self):
+        today = date(2026, 7, 29)
+        self.store.add_todo(
+            "每日整理",
+            "",
+            today,
+            time(9, 0),
+            recurrence=RECURRENCE_DAILY,
+            work_calendar=self.calendar,
+        )
+        occurrence = self.store.list_today(today, self.calendar)[0]
+
+        self.store.update_current_and_future(
+            occurrence.id,
+            occurrence.title,
+            occurrence.note,
+            today,
+            None,
+            RECURRENCE_DAILY,
+            1,
+            False,
+            self.calendar,
+        )
+
+        updated = self.store.list_today(today, self.calendar)
+        self.assertEqual(len(updated), 1)
+        self.assertIsNone(updated[0].due_time)
+        self.assertEqual(
+            self.store.claim_due_reminders(
+                datetime(2026, 7, 29, 23, 59),
+                self.calendar,
+            ),
+            [],
+        )
+
     def test_every_n_workday_recurrence_uses_shared_calendar(self):
         self.store.add_todo(
             "复盘",

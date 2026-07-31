@@ -742,8 +742,6 @@ class TodoManagerWindow(QWidget):
     def _sync_recurrence_controls(self) -> None:
         recurrence = self.recurrence_combo.currentData()
         self.interval_spin.setVisible(recurrence == RECURRENCE_EVERY_N_DAYS)
-        if recurrence != RECURRENCE_NONE and not self.has_time_check.isChecked():
-            self.has_time_check.setChecked(True)
         self._sync_scope_controls()
 
     def _sync_scope_controls(self) -> None:
