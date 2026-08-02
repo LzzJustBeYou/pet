@@ -18,10 +18,15 @@
 !/autostart.py
 !/tray_controller.py
 !/settings_window.py
+!/health_reminder.py
+!/break_overlay.py
+!/sound.py
 !/generate_icons.py
 !/icon.png
 !/icon.ico
 !/icon.icns
+!/assets
+!/assets/**
 !/actions
 !/actions/**
 !/calendar_data
