@@ -19,9 +19,6 @@ from PyQt5.QtWidgets import (
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "pet/size": 100,
-    "pet/opacity": 1.0,
-    "pet/pinned": True,
-    "pet/interactive": True,
     "todo/notifications_enabled": True,
     "todo/bubble_ms": 8000,
     "todo/poll_minutes": 5,
@@ -71,25 +68,6 @@ class SettingsWindow(QWidget):
         size_row.addWidget(self.size_value_label)
         pet_form.addRow("大小", size_row)
 
-        self.opacity_slider = QSlider(Qt.Horizontal)
-        self.opacity_slider.setRange(30, 100)
-        opacity_value = round(float(read_setting(settings, "pet/opacity")) * 100)
-        self.opacity_slider.setValue(max(30, min(100, opacity_value)))
-        self.opacity_value_label = QLabel(f"{self.opacity_slider.value()}%")
-        opacity_row = QHBoxLayout()
-        opacity_row.addWidget(self.opacity_slider, 1)
-        opacity_row.addWidget(self.opacity_value_label)
-        pet_form.addRow("透明度", opacity_row)
-
-        self.pinned_check = QCheckBox("窗口置顶")
-        self.pinned_check.setChecked(bool(read_setting(settings, "pet/pinned")))
-        pet_form.addRow("", self.pinned_check)
-
-        self.interactive_check = QCheckBox("悬停/拖拽动画")
-        self.interactive_check.setChecked(
-            bool(read_setting(settings, "pet/interactive"))
-        )
-        pet_form.addRow("", self.interactive_check)
         layout.addWidget(pet_group)
 
         # ── 待办 ──
@@ -184,13 +162,6 @@ class SettingsWindow(QWidget):
 
         # 先加载完再连接信号，避免初始化回写
         self.size_slider.valueChanged.connect(self._size_changed)
-        self.opacity_slider.valueChanged.connect(self._opacity_changed)
-        self.pinned_check.toggled.connect(
-            lambda checked: self._emit("pet/pinned", bool(checked))
-        )
-        self.interactive_check.toggled.connect(
-            lambda checked: self._emit("pet/interactive", bool(checked))
-        )
         self.notifications_check.toggled.connect(
             lambda checked: self._emit("todo/notifications_enabled", bool(checked))
         )
@@ -221,10 +192,6 @@ class SettingsWindow(QWidget):
     def _size_changed(self, value: int) -> None:
         self.size_value_label.setText(f"{value} px")
         self._emit("pet/size", int(value))
-
-    def _opacity_changed(self, value: int) -> None:
-        self.opacity_value_label.setText(f"{value}%")
-        self._emit("pet/opacity", round(value / 100.0, 2))
 
     def _poll_changed(self, _index: int) -> None:
         self._emit("todo/poll_minutes", int(self.poll_combo.currentData()))

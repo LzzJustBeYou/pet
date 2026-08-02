@@ -157,7 +157,6 @@ class DesktopPet(QWidget):
         self._todo_badge_count = 0
         self._reminders_paused = False
         self._quit_requested = False
-        self._pinned = True
         self.todo_store: Optional[TodoStore] = todo_store
         self.holiday_calendar: Optional[HolidayCalendar] = holiday_calendar
         self.todo_scheduler: Optional[TodoScheduler] = None
@@ -432,17 +431,17 @@ class DesktopPet(QWidget):
             QTimer.singleShot(0, self._restore_position)
         if sys.platform == "darwin":
             for delay in (0, 200, 500, 1500):
-                QTimer.singleShot(delay, lambda: self._pin_macos_topmost(self._pinned))
+                QTimer.singleShot(delay, self._pin_macos_topmost)
             if self._topmost_timer is None:
                 self._topmost_timer = QTimer(self)
                 self._topmost_timer.timeout.connect(self._keep_on_top)
                 self._topmost_timer.start(3000)
 
     def _keep_on_top(self):
-        if sys.platform == "darwin" and self._pinned:
-            self._pin_macos_topmost(True)
+        if sys.platform == "darwin":
+            self._pin_macos_topmost()
 
-    def _pin_macos_topmost(self, floating: bool = True):
+    def _pin_macos_topmost(self):
         if QGuiApplication.platformName() == "offscreen":
             return
         try:
@@ -466,7 +465,7 @@ class DesktopPet(QWidget):
             if not nswindow:
                 return
 
-            target_level = 1000 if floating else 0
+            target_level = 1000
             current_level = ctypes.cast(objc.objc_msgSend, msg_long)(
                 nswindow, selector(b"level")
             )
@@ -1020,34 +1019,9 @@ class DesktopPet(QWidget):
     def _setting_int(self, key: str) -> int:
         return self.settings.value(key, DEFAULT_SETTINGS.get(key, 0), type=int)
 
-    def _setting_float(self, key: str) -> float:
-        return self.settings.value(key, DEFAULT_SETTINGS.get(key, 1.0), type=float)
-
     def _apply_saved_settings(self) -> None:
-        self.setWindowOpacity(self._setting_float("pet/opacity"))
-        self._apply_pinned(self._setting_bool("pet/pinned"))
-        interactive = self._setting_bool("pet/interactive")
-        self.interaction.activate(
-            interactive and self.current_source_type == "package"
-        )
         self._apply_poll_interval(self._setting_int("todo/poll_minutes"))
         self.health.start()
-
-    def _apply_pinned(self, pinned: bool) -> None:
-        self._pinned = bool(pinned)
-        if sys.platform == "darwin":
-            if self.isVisible():
-                QTimer.singleShot(0, lambda: self._pin_macos_topmost(self._pinned))
-            return
-        flags = Qt.FramelessWindowHint | Qt.Tool
-        if self._pinned:
-            flags |= Qt.WindowStaysOnTopHint
-        was_visible = self.isVisible()
-        position = self.pos()
-        self.setWindowFlags(flags)
-        if was_visible:
-            self.move(position)
-            self.show()
 
     def _apply_poll_interval(self, minutes: int) -> None:
         if self.todo_scheduler is None:
@@ -1060,14 +1034,6 @@ class DesktopPet(QWidget):
     def _on_setting_changed(self, key: str, value) -> None:
         if key == "pet/size":
             self.set_pet_size(int(value))
-        elif key == "pet/opacity":
-            self.setWindowOpacity(float(value))
-        elif key == "pet/pinned":
-            self._apply_pinned(bool(value))
-        elif key == "pet/interactive":
-            self.interaction.activate(
-                bool(value) and self.current_source_type == "package"
-            )
         elif key == "todo/notifications_enabled":
             if not value and self.todo_bubble is not None:
                 self.todo_bubble.hide()
@@ -1154,7 +1120,7 @@ class DesktopPet(QWidget):
         self.show()
         self._keep_current_position_visible()
         if sys.platform == "darwin":
-            QTimer.singleShot(0, lambda: self._pin_macos_topmost(self._pinned))
+            QTimer.singleShot(0, self._pin_macos_topmost)
 
     def set_reminders_paused(self, paused: bool) -> None:
         self._reminders_paused = bool(paused)
