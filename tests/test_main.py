@@ -13,7 +13,7 @@ from PyQt5.QtTest import QTest
 from PyQt5.QtWidgets import QApplication
 
 from holiday_calendar import HolidayCalendar
-from main import DesktopPet
+from main import configure_app, DesktopPet
 from todo_models import local_now
 from todo_notifier import TODO_CHANGE_KIND
 from todo_store import TodoStore
@@ -43,6 +43,25 @@ class DesktopPetTests(unittest.TestCase):
     def test_existing_gif_remains_first_start_default(self):
         self.assertEqual(self.pet.current_source_type, "gif")
         self.assertTrue(self.pet.current_gif.endswith("臭臭小八.gif"))
+
+    def test_configure_app_keeps_running_when_last_window_closes(self):
+        configure_app(self.app)
+        self.assertFalse(self.app.quitOnLastWindowClosed())
+        self.assertEqual(self.app.applicationName(), "DesktopPet")
+        self.assertEqual(self.app.organizationName(), "PetApp")
+
+    def test_break_finish_keeps_pet_running(self):
+        self.pet.show()
+        QApplication.processEvents()
+        quit_events = []
+        self.app.aboutToQuit.connect(lambda: quit_events.append(True))
+        self.pet.health.start_break_now()
+        QApplication.processEvents()
+        self.pet.health._finish_break()
+        QApplication.processEvents()
+        self.assertFalse(self.pet.break_overlay.isVisible())
+        self.assertTrue(self.pet.isVisible())
+        self.assertEqual(quit_events, [])
 
     def test_pet_window_is_always_on_top(self):
         self.assertTrue(self.pet.windowFlags() & Qt.WindowStaysOnTopHint)
@@ -212,6 +231,21 @@ class DesktopPetTests(unittest.TestCase):
 
         self.assertTrue(self.pet.todo_badge.isVisible())
         self.assertEqual(self.pet.todo_badge.text(), "1")
+
+    def test_todo_badge_sits_at_top_right_corner(self):
+        # 参考 Codex 吉祥物角标：贴容器/窗口右上角（top-end / top-0 right-0）
+        self.pet.set_todo_badge_count(3)
+        badge = self.pet.todo_badge.geometry()
+        self.assertEqual(badge.right(), self.pet.width() - 1)
+        self.assertEqual(badge.top(), 0)
+        self.assertEqual(badge.x(), self.pet.width() - badge.width())
+
+    def test_todo_badge_stays_at_top_right_corner_when_resized(self):
+        self.pet.set_todo_badge_count(3)
+        self.pet.set_pet_size(200)
+        badge = self.pet.todo_badge.geometry()
+        self.assertEqual(badge.right(), self.pet.width() - 1)
+        self.assertEqual(badge.top(), 0)
 
 
 if __name__ == "__main__":

@@ -71,3 +71,59 @@ class BreakOverlayUiTests(unittest.TestCase):
         center = overlay.frameGeometry().center()
         self.assertTrue(SCREEN.contains(center))
         overlay.close()
+
+    def test_fullscreen_break_fills_screen(self):
+        overlay = BreakOverlay()
+        overlay.show_break("micro", 20, SCREEN, fullscreen=True)
+        self.assertTrue(overlay.isVisible())
+        self.assertEqual(overlay.frameGeometry(), SCREEN)
+        self.assertEqual(overlay.size().width(), SCREEN.width())
+        self.assertEqual(overlay.size().height(), SCREEN.height())
+        self.assertIn("border-radius: 0", overlay._frame.styleSheet())
+        overlay.close()
+
+    def test_fullscreen_break_shows_mmss_countdown(self):
+        overlay = BreakOverlay()
+        overlay.show_break("micro", 20, SCREEN, fullscreen=True)
+        self.assertEqual(overlay.countdown_label.text(), "0:20")
+        overlay.update_remaining(305)
+        self.assertEqual(overlay.countdown_label.text(), "5:05")
+        overlay.close()
+
+    def test_fullscreen_break_has_centered_skip_button(self):
+        overlay = BreakOverlay()
+        skipped = []
+        overlay.skipped.connect(lambda: skipped.append(True))
+        overlay.show_break("micro", 20, SCREEN, fullscreen=True)
+        self.assertIsNotNone(overlay.skip_button)
+        self.assertTrue(overlay.skip_button.isVisible())
+        button_center_x = overlay.skip_button.geometry().center().x()
+        overlay_center_x = overlay.width() // 2
+        self.assertLess(abs(button_center_x - overlay_center_x), 4)
+        QApplication.processEvents()
+        QTest.mouseClick(overlay.skip_button, Qt.LeftButton)
+        self.assertEqual(skipped, [True])
+        self.assertFalse(overlay.isVisible())
+        overlay.close()
+
+    def test_fullscreen_break_escape_skips(self):
+        overlay = BreakOverlay()
+        skipped = []
+        overlay.skipped.connect(lambda: skipped.append(True))
+        overlay.show_break("micro", 20, SCREEN, fullscreen=True)
+        QApplication.processEvents()
+        QTest.keyClick(overlay, Qt.Key_Escape)
+        QApplication.processEvents()
+        self.assertEqual(skipped, [True])
+        self.assertFalse(overlay.isVisible())
+        overlay.close()
+
+    def test_normal_break_restores_compact_size_after_fullscreen(self):
+        overlay = BreakOverlay()
+        overlay.show_break("micro", 20, SCREEN, fullscreen=True)
+        overlay.show_break("micro", 20, SCREEN)
+        self.assertEqual((overlay.width(), overlay.height()), (300, 240))
+        self.assertIsNotNone(overlay.skip_button)
+        self.assertEqual(overlay.countdown_label.text(), "20")
+        self.assertIn("border-radius: 14px", overlay._frame.styleSheet())
+        overlay.close()

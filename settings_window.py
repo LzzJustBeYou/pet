@@ -29,6 +29,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "health/break_seconds": 20,
     "health/long_break_every": 4,
     "health/long_break_minutes": 5,
+    "health/fullscreen_break": False,
 }
 
 POLL_CHOICES = [("1 分钟", 1), ("5 分钟", 5)]
@@ -115,6 +116,12 @@ class SettingsWindow(QWidget):
         )
         health_form.addRow("", self.health_enabled_check)
 
+        self.fullscreen_break_check = QCheckBox("休息弹窗全屏显示")
+        self.fullscreen_break_check.setChecked(
+            bool(read_setting(settings, "health/fullscreen_break"))
+        )
+        health_form.addRow("", self.fullscreen_break_check)
+
         self.work_minutes_spin = QSpinBox()
         self.work_minutes_spin.setRange(1, 180)
         self.work_minutes_spin.setSuffix(" 分钟")
@@ -174,6 +181,9 @@ class SettingsWindow(QWidget):
         )
         self.health_enabled_check.toggled.connect(
             lambda checked: self._emit("health/enabled", bool(checked))
+        )
+        self.fullscreen_break_check.toggled.connect(
+            lambda checked: self._emit("health/fullscreen_break", bool(checked))
         )
         self.work_minutes_spin.valueChanged.connect(
             lambda value: self._emit("health/work_minutes", int(value))

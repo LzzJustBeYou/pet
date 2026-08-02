@@ -82,6 +82,7 @@ class SettingsWindowTests(unittest.TestCase):
 
     def test_health_defaults_when_settings_empty(self):
         self.assertTrue(self.window.health_enabled_check.isChecked())
+        self.assertFalse(self.window.fullscreen_break_check.isChecked())
         self.assertEqual(self.window.work_minutes_spin.value(), 20)
         self.assertEqual(self.window.break_seconds_spin.value(), 20)
         self.assertEqual(self.window.long_break_every_spin.value(), 4)
@@ -91,6 +92,11 @@ class SettingsWindowTests(unittest.TestCase):
         self.window.health_enabled_check.setChecked(False)
         self.assertIn(("health/enabled", False), self.changes)
         self.assertFalse(self.settings.value("health/enabled", type=bool))
+
+    def test_fullscreen_break_toggle_emits_and_persists(self):
+        self.window.fullscreen_break_check.setChecked(True)
+        self.assertIn(("health/fullscreen_break", True), self.changes)
+        self.assertTrue(self.settings.value("health/fullscreen_break", type=bool))
 
     def test_health_spins_emit_and_persist(self):
         self.window.work_minutes_spin.setValue(10)

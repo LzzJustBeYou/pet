@@ -56,6 +56,27 @@ class SettingsUiIntegrationTests(unittest.TestCase):
         self.assertEqual(self.pet.health.work_minutes, 10)
         self.assertEqual(self.pet.health.break_seconds, 30)
 
+    def test_fullscreen_break_setting_controls_overlay(self):
+        window = self._open_settings()
+        window.fullscreen_break_check.setChecked(True)
+        self.assertTrue(
+            self.settings.value("health/fullscreen_break", type=bool)
+        )
+
+        self.pet.health.start_break_now()
+        self.assertTrue(self.pet.break_overlay.isVisible())
+        self.assertEqual(
+            self.pet.break_overlay._fullscreen, True
+        )
+        self.assertIsNotNone(self.pet.break_overlay.skip_button)
+        screen = self.pet._screen_for_point(
+            self.pet.frameGeometry().center()
+        )
+        self.assertEqual(
+            self.pet.break_overlay.frameGeometry(),
+            screen.availableGeometry(),
+        )
+
     def test_autostart_toggle_writes_platform_and_settings(self):
         with patch("main.set_autostart") as mock_set:
             window = self._open_settings()

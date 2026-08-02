@@ -8,7 +8,6 @@ from PyQt5.QtWidgets import QMenu, QSystemTrayIcon
 
 
 class TrayController(QObject):
-    toggle_visibility_requested = pyqtSignal()
     manage_todo_requested = pyqtSignal()
     toggle_reminders_requested = pyqtSignal(bool)
     health_pause_requested = pyqtSignal(bool)
@@ -22,10 +21,6 @@ class TrayController(QObject):
         self._tray.setToolTip("桌面宠物 DesktopPet")
 
         self._menu = QMenu()
-        toggle_action = self._menu.addAction("显示/隐藏宠物")
-        toggle_action.triggered.connect(self.toggle_visibility_requested.emit)
-        self._menu.addSeparator()
-
         manage_action = self._menu.addAction("管理待办")
         manage_action.triggered.connect(self.manage_todo_requested.emit)
         self._menu.addSeparator()
@@ -55,7 +50,6 @@ class TrayController(QObject):
         quit_action.triggered.connect(self.quit_requested.emit)
 
         self._tray.setContextMenu(self._menu)
-        self._tray.activated.connect(self._on_activated)
 
     def show(self) -> None:
         self._tray.show()
@@ -72,10 +66,3 @@ class TrayController(QObject):
         self._health_pause_action.blockSignals(True)
         self._health_pause_action.setChecked(bool(paused))
         self._health_pause_action.blockSignals(False)
-
-    def _on_activated(
-        self,
-        reason: QSystemTrayIcon.ActivationReason,
-    ) -> None:
-        if reason == QSystemTrayIcon.Trigger:
-            self.toggle_visibility_requested.emit()

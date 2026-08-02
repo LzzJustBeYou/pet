@@ -4,7 +4,7 @@ import unittest
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
 from PyQt5.QtGui import QIcon
-from PyQt5.QtWidgets import QApplication, QSystemTrayIcon
+from PyQt5.QtWidgets import QApplication
 
 from tray_controller import TrayController
 
@@ -17,7 +17,6 @@ class TrayControllerTests(unittest.TestCase):
     def test_menu_actions_emit_signals(self):
         tray = TrayController(QIcon())
         emitted = []
-        tray.toggle_visibility_requested.connect(lambda: emitted.append("toggle"))
         tray.manage_todo_requested.connect(lambda: emitted.append("manage"))
         tray.health_break_now_requested.connect(lambda: emitted.append("break_now"))
         tray.settings_requested.connect(lambda: emitted.append("settings"))
@@ -32,8 +31,6 @@ class TrayControllerTests(unittest.TestCase):
         self.assertEqual(
             texts,
             [
-                "显示/隐藏宠物",
-                "",
                 "管理待办",
                 "",
                 "健康提醒",
@@ -46,23 +43,22 @@ class TrayControllerTests(unittest.TestCase):
         )
 
         actions[0].trigger()
-        actions[2].trigger()
-        health_actions = actions[4].menu().actions()
+        health_actions = actions[2].menu().actions()
         self.assertEqual(
             [action.text() for action in health_actions],
             ["暂停提醒", "立即休息"],
         )
         health_actions[0].setChecked(True)
         health_actions[1].trigger()
+        actions[5].trigger()
         actions[7].trigger()
-        actions[9].trigger()
         self.assertEqual(
             emitted,
-            ["toggle", "manage", "break_now", "settings", "quit"],
+            ["manage", "break_now", "settings", "quit"],
         )
         self.assertEqual(health_paused, [True])
 
-        actions[6].setChecked(True)
+        actions[4].setChecked(True)
         self.assertEqual(paused, [True])
 
     def test_set_reminders_paused_syncs_checkbox_without_signal(self):
@@ -71,7 +67,7 @@ class TrayControllerTests(unittest.TestCase):
         tray.toggle_reminders_requested.connect(paused.append)
         tray.set_reminders_paused(True)
         actions = tray._menu.actions()
-        self.assertTrue(actions[6].isChecked())
+        self.assertTrue(actions[4].isChecked())
         self.assertEqual(paused, [])
         tray.hide()
 
@@ -80,16 +76,15 @@ class TrayControllerTests(unittest.TestCase):
         health_paused = []
         tray.health_pause_requested.connect(health_paused.append)
         tray.set_health_paused(True)
-        health_actions = tray._menu.actions()[4].menu().actions()
+        health_actions = tray._menu.actions()[2].menu().actions()
         self.assertTrue(health_actions[0].isChecked())
         self.assertEqual(health_paused, [])
         tray.hide()
 
-    def test_trigger_activation_toggles_visibility(self):
+    def test_menu_has_no_show_hide_option(self):
         tray = TrayController(QIcon())
-        emitted = []
-        tray.toggle_visibility_requested.connect(lambda: emitted.append(True))
-        tray._on_activated(QSystemTrayIcon.Context)
-        tray._on_activated(QSystemTrayIcon.Trigger)
-        self.assertEqual(emitted, [True])
+        texts = [action.text() for action in tray._menu.actions()]
+        self.assertNotIn("显示/隐藏宠物", texts)
+        self.assertNotIn("显示宠物", texts)
+        self.assertNotIn("隐藏宠物", texts)
         tray.hide()

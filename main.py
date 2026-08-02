@@ -72,6 +72,63 @@ def install_qt_message_filter():
         _qt_message_filter_installed = True
 
 
+def configure_app(app: QApplication) -> None:
+    """设置应用级参数（组织名/应用名/退出策略）。"""
+    app.setOrganizationName("PetApp")
+    app.setApplicationName("DesktopPet")
+    # 托盘常驻应用：最后一个可见窗口关闭/隐藏时不退出进程，
+    # 避免休息浮层结束后应用被自动退出。
+    app.setQuitOnLastWindowClosed(False)
+    if sys.platform == "win32":
+        icon_path = resource_path("icon.ico")
+        if os.path.exists(icon_path):
+            app.setWindowIcon(QIcon(icon_path))
+
+
+def pin_macos_window_level(win_id: int, target_level: int = 1000) -> bool:
+    """macOS 上用 objc 把窗口层级硬拉到指定级别，返回是否成功。"""
+    if QGuiApplication.platformName() == "offscreen":
+        return False
+    if not win_id:
+        return False
+    try:
+        objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
+        c_void_p = ctypes.c_void_p
+        c_long = ctypes.c_long
+        selector = objc.sel_registerName
+        selector.restype = c_void_p
+        selector.argtypes = [ctypes.c_char_p]
+
+        msg_id = ctypes.CFUNCTYPE(c_void_p, c_void_p, c_void_p)
+        msg_void_long = ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_long)
+        msg_long = ctypes.CFUNCTYPE(c_long, c_void_p, c_void_p)
+
+        nswindow = ctypes.cast(objc.objc_msgSend, msg_id)(
+            c_void_p(win_id), selector(b"window")
+        )
+        if not nswindow:
+            return False
+
+        current_level = ctypes.cast(objc.objc_msgSend, msg_long)(
+            nswindow, selector(b"level")
+        )
+        if current_level != target_level:
+            ctypes.cast(objc.objc_msgSend, msg_void_long)(
+                nswindow,
+                selector(b"setLevel:"),
+                c_long(target_level),
+            )
+            ctypes.cast(objc.objc_msgSend, msg_void_long)(
+                nswindow,
+                selector(b"setCollectionBehavior:"),
+                c_long(33),
+            )
+        return True
+    except Exception as exc:
+        print(f"[DesktopPet] pin failed: {exc}", file=sys.stderr)
+        return False
+
+
 def resource_path(relative_path):
     """Return a resource path in development and PyInstaller builds."""
     base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
@@ -292,6 +349,7 @@ class DesktopPet(QWidget):
             return
         badge_size = max(18, min(28, int(min(self.width(), self.height()) * 0.26)))
         self.todo_badge.setFixedSize(badge_size, badge_size)
+        # 角标贴窗口右上角（不压住宠物主体），类似 Codex 的角落角标
         self.todo_badge.move(max(0, self.width() - badge_size), 0)
         font_size = max(9, int(badge_size * 0.52))
         self.todo_badge.setStyleSheet(
@@ -447,46 +505,11 @@ class DesktopPet(QWidget):
             self._pin_macos_topmost()
 
     def _pin_macos_topmost(self):
-        if QGuiApplication.platformName() == "offscreen":
-            return
-        try:
-            objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
-            c_void_p = ctypes.c_void_p
-            c_long = ctypes.c_long
-            selector = objc.sel_registerName
-            selector.restype = c_void_p
-            selector.argtypes = [ctypes.c_char_p]
+        pin_macos_window_level(int(self.winId()), 1000)
 
-            msg_id = ctypes.CFUNCTYPE(c_void_p, c_void_p, c_void_p)
-            msg_void_long = ctypes.CFUNCTYPE(None, c_void_p, c_void_p, c_long)
-            msg_long = ctypes.CFUNCTYPE(c_long, c_void_p, c_void_p)
-
-            win_id = int(self.winId())
-            if win_id == 0:
-                return
-            nswindow = ctypes.cast(objc.objc_msgSend, msg_id)(
-                c_void_p(win_id), selector(b"window")
-            )
-            if not nswindow:
-                return
-
-            target_level = 1000
-            current_level = ctypes.cast(objc.objc_msgSend, msg_long)(
-                nswindow, selector(b"level")
-            )
-            if current_level != target_level:
-                ctypes.cast(objc.objc_msgSend, msg_void_long)(
-                    nswindow,
-                    selector(b"setLevel:"),
-                    c_long(target_level),
-                )
-                ctypes.cast(objc.objc_msgSend, msg_void_long)(
-                    nswindow,
-                    selector(b"setCollectionBehavior:"),
-                    c_long(33),
-                )
-        except Exception as exc:
-            print(f"[DesktopPet] pin failed: {exc}", file=sys.stderr)
+    def _pin_break_overlay_topmost(self):
+        """休息浮层压过宠物（宠物在层级 1000，浮层用 1010）。"""
+        pin_macos_window_level(int(self.break_overlay.winId()), 1010)
 
     def enterEvent(self, event):
         super().enterEvent(event)
@@ -1062,6 +1085,8 @@ class DesktopPet(QWidget):
             self.health.apply_config(long_break_every=int(value))
         elif key == "health/long_break_minutes":
             self.health.apply_config(long_break_minutes=int(value))
+        elif key == "health/fullscreen_break":
+            pass  # 下次休息开始时读取该开关
 
     def open_settings_window(self) -> None:
         if self.settings_window is None:
@@ -1086,7 +1111,6 @@ class DesktopPet(QWidget):
         if not QSystemTrayIcon.isSystemTrayAvailable():
             return
         self.tray = TrayController(QIcon(resource_path("icon.png")), self)
-        self.tray.toggle_visibility_requested.connect(self.toggle_visibility)
         self.tray.manage_todo_requested.connect(self.open_todo_manager)
         self.tray.toggle_reminders_requested.connect(self.set_reminders_paused)
         self.tray.health_pause_requested.connect(self.set_health_paused)
@@ -1108,8 +1132,15 @@ class DesktopPet(QWidget):
         self.sound.play("remind")
         screen = self._screen_for_point(self.frameGeometry().center())
         self.break_overlay.show_break(
-            kind, seconds, screen.availableGeometry()
+            kind,
+            seconds,
+            screen.availableGeometry(),
+            fullscreen=self._setting_bool("health/fullscreen_break"),
         )
+        if sys.platform == "darwin":
+            # macOS 上把浮层压到宠物（层级 1000）之上，全屏强制休息时
+            # 宠物不会出现在遮罩上面。
+            QTimer.singleShot(0, self._pin_break_overlay_topmost)
 
     def _on_health_break_ticked(self, remaining: int) -> None:
         self.break_overlay.update_remaining(remaining)
@@ -1120,15 +1151,6 @@ class DesktopPet(QWidget):
 
     def _on_health_break_skipped(self, _kind: str) -> None:
         self.break_overlay.hide()
-
-    def toggle_visibility(self) -> None:
-        if self.isVisible():
-            self.hide()
-            return
-        self.show()
-        self._keep_current_position_visible()
-        if sys.platform == "darwin":
-            QTimer.singleShot(0, self._pin_macos_topmost)
 
     def set_reminders_paused(self, paused: bool) -> None:
         self._reminders_paused = bool(paused)
@@ -1153,12 +1175,7 @@ class DesktopPet(QWidget):
 def main():
     install_qt_message_filter()
     app = QApplication(sys.argv)
-    app.setOrganizationName("PetApp")
-    app.setApplicationName("DesktopPet")
-    if sys.platform == "win32":
-        icon_path = resource_path("icon.ico")
-        if os.path.exists(icon_path):
-            app.setWindowIcon(QIcon(icon_path))
+    configure_app(app)
     pet = DesktopPet()
     pet.show()
     return app.exec_()
