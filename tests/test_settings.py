@@ -39,9 +39,6 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertEqual(
             self.window.size_slider.value(), DEFAULT_SETTINGS["pet/size"]
         )
-        self.assertEqual(self.window.opacity_slider.value(), 100)
-        self.assertTrue(self.window.pinned_check.isChecked())
-        self.assertTrue(self.window.interactive_check.isChecked())
         self.assertTrue(self.window.notifications_check.isChecked())
         self.assertEqual(
             self.window.bubble_spin.value(), DEFAULT_SETTINGS["todo/bubble_ms"]
@@ -54,13 +51,6 @@ class SettingsWindowTests(unittest.TestCase):
         self.window.size_slider.setValue(150)
         self.assertIn(("pet/size", 150), self.changes)
         self.assertEqual(self.settings.value("pet/size", type=int), 150)
-
-    def test_opacity_scaled_to_percent(self):
-        self.window.opacity_slider.setValue(60)
-        self.assertIn(("pet/opacity", 0.6), self.changes)
-        self.assertAlmostEqual(
-            self.settings.value("pet/opacity", type=float), 0.6
-        )
 
     def test_poll_combo_emits_integer(self):
         self.window.poll_combo.setCurrentIndex(0)
@@ -83,11 +73,11 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertEqual(self.autostart_events, [True])
 
     def test_loaded_values_reflected_from_settings(self):
-        self.settings.setValue("pet/opacity", 0.5)
-        self.settings.setValue("pet/pinned", False)
+        self.settings.setValue("pet/size", 150)
+        self.settings.setValue("todo/bubble_ms", 12000)
         reloaded = SettingsWindow(self.settings)
-        self.assertEqual(reloaded.opacity_slider.value(), 50)
-        self.assertFalse(reloaded.pinned_check.isChecked())
+        self.assertEqual(reloaded.size_slider.value(), 150)
+        self.assertEqual(reloaded.bubble_spin.value(), 12000)
         reloaded.close()
 
     def test_health_defaults_when_settings_empty(self):

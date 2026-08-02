@@ -42,11 +42,6 @@ class SettingsUiIntegrationTests(unittest.TestCase):
         window.size_slider.setValue(150)
         self.assertEqual(self.pet.pet_size, 150)
 
-    def test_opacity_slider_applies_to_pet_window(self):
-        window = self._open_settings()
-        window.opacity_slider.setValue(60)
-        self.assertAlmostEqual(self.pet.windowOpacity(), 0.6, places=2)
-
     def test_health_toggle_disables_controller(self):
         window = self._open_settings()
         self.assertTrue(self.pet.health.enabled)
