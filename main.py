@@ -115,6 +115,10 @@ DEFAULT_SIZE = 100
 DEFAULT_GIF_NAME = "臭臭小八"
 MIN_VISIBLE_PIXELS = 20
 
+# 预研分支遗留的宠物开关，已按 v0.3.0-tag 行为移除；启动时自动清理，
+# 避免旧构建或残留配置继续生效（如 pet/opacity=0.3 导致宠物半透明）。
+OBSOLETE_SETTINGS_KEYS = ("pet/opacity", "pet/pinned", "pet/interactive")
+
 
 @dataclass
 class PetMenuEntry:
@@ -1020,6 +1024,9 @@ class DesktopPet(QWidget):
         return self.settings.value(key, DEFAULT_SETTINGS.get(key, 0), type=int)
 
     def _apply_saved_settings(self) -> None:
+        for key in OBSOLETE_SETTINGS_KEYS:
+            if self.settings.contains(key):
+                self.settings.remove(key)
         self._apply_poll_interval(self._setting_int("todo/poll_minutes"))
         self.health.start()
 

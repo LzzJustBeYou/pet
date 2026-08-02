@@ -72,3 +72,13 @@ class SettingsUiIntegrationTests(unittest.TestCase):
             window.autostart_check.setChecked(True)
             self.assertFalse(window.autostart_check.isChecked())
             mock_warning.assert_called_once()
+
+    def test_obsolete_pet_settings_cleaned_on_startup(self):
+        self.settings.setValue("pet/opacity", 0.3)
+        self.settings.setValue("pet/pinned", True)
+        self.settings.setValue("pet/interactive", False)
+        pet = DesktopPet(settings=self.settings, enable_todos=False)
+        self.assertFalse(self.settings.contains("pet/opacity"))
+        self.assertFalse(self.settings.contains("pet/pinned"))
+        self.assertFalse(self.settings.contains("pet/interactive"))
+        pet.close()
