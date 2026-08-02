@@ -89,3 +89,26 @@ class SettingsWindowTests(unittest.TestCase):
         self.assertEqual(reloaded.opacity_slider.value(), 50)
         self.assertFalse(reloaded.pinned_check.isChecked())
         reloaded.close()
+
+    def test_health_defaults_when_settings_empty(self):
+        self.assertTrue(self.window.health_enabled_check.isChecked())
+        self.assertEqual(self.window.work_minutes_spin.value(), 20)
+        self.assertEqual(self.window.break_seconds_spin.value(), 20)
+        self.assertEqual(self.window.long_break_every_spin.value(), 4)
+        self.assertEqual(self.window.long_break_minutes_spin.value(), 5)
+
+    def test_health_toggle_emits_and_persists(self):
+        self.window.health_enabled_check.setChecked(False)
+        self.assertIn(("health/enabled", False), self.changes)
+        self.assertFalse(self.settings.value("health/enabled", type=bool))
+
+    def test_health_spins_emit_and_persist(self):
+        self.window.work_minutes_spin.setValue(10)
+        self.assertEqual(self.changes[-1], ("health/work_minutes", 10))
+        self.assertEqual(
+            self.settings.value("health/work_minutes", type=int), 10
+        )
+        self.window.long_break_minutes_spin.setValue(8)
+        self.assertEqual(
+            self.changes[-1], ("health/long_break_minutes", 8)
+        )

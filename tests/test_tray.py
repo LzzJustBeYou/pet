@@ -19,25 +19,50 @@ class TrayControllerTests(unittest.TestCase):
         emitted = []
         tray.toggle_visibility_requested.connect(lambda: emitted.append("toggle"))
         tray.manage_todo_requested.connect(lambda: emitted.append("manage"))
+        tray.health_break_now_requested.connect(lambda: emitted.append("break_now"))
         tray.settings_requested.connect(lambda: emitted.append("settings"))
         tray.quit_requested.connect(lambda: emitted.append("quit"))
         paused = []
         tray.toggle_reminders_requested.connect(paused.append)
+        health_paused = []
+        tray.health_pause_requested.connect(health_paused.append)
 
         actions = tray._menu.actions()
         texts = [action.text() for action in actions]
         self.assertEqual(
             texts,
-            ["显示/隐藏宠物", "", "管理待办", "暂停提醒", "设置", "", "退出"],
+            [
+                "显示/隐藏宠物",
+                "",
+                "管理待办",
+                "",
+                "健康提醒",
+                "",
+                "暂停提醒",
+                "设置",
+                "",
+                "退出",
+            ],
         )
 
         actions[0].trigger()
         actions[2].trigger()
-        actions[4].trigger()
-        actions[6].trigger()
-        self.assertEqual(emitted, ["toggle", "manage", "settings", "quit"])
+        health_actions = actions[4].menu().actions()
+        self.assertEqual(
+            [action.text() for action in health_actions],
+            ["暂停提醒", "立即休息"],
+        )
+        health_actions[0].setChecked(True)
+        health_actions[1].trigger()
+        actions[7].trigger()
+        actions[9].trigger()
+        self.assertEqual(
+            emitted,
+            ["toggle", "manage", "break_now", "settings", "quit"],
+        )
+        self.assertEqual(health_paused, [True])
 
-        actions[3].setChecked(True)
+        actions[6].setChecked(True)
         self.assertEqual(paused, [True])
 
     def test_set_reminders_paused_syncs_checkbox_without_signal(self):
@@ -46,8 +71,18 @@ class TrayControllerTests(unittest.TestCase):
         tray.toggle_reminders_requested.connect(paused.append)
         tray.set_reminders_paused(True)
         actions = tray._menu.actions()
-        self.assertTrue(actions[3].isChecked())
+        self.assertTrue(actions[6].isChecked())
         self.assertEqual(paused, [])
+        tray.hide()
+
+    def test_set_health_paused_syncs_checkbox_without_signal(self):
+        tray = TrayController(QIcon())
+        health_paused = []
+        tray.health_pause_requested.connect(health_paused.append)
+        tray.set_health_paused(True)
+        health_actions = tray._menu.actions()[4].menu().actions()
+        self.assertTrue(health_actions[0].isChecked())
+        self.assertEqual(health_paused, [])
         tray.hide()
 
     def test_trigger_activation_toggles_visibility(self):
