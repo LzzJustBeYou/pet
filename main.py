@@ -16,12 +16,14 @@ from PyQt5.QtWidgets import (
     QMenu,
     QMessageBox,
     QSlider,
+    QSystemTrayIcon,
     QWidget,
     QWidgetAction,
     qApp,
 )
 
 from animation import GifVisual, SpriteAtlasPlayer, load_gif_visual
+from autostart import set_autostart
 from interaction import PetInteractionController
 from pet_package import (
     PetPackage,
@@ -30,6 +32,7 @@ from pet_package import (
     find_pet_directories,
     load_pet_package,
 )
+from settings_window import DEFAULT_SETTINGS, SettingsWindow
 from holiday_calendar import HolidayCalendar
 from todo_models import local_now
 from todo_notifier import (
@@ -41,6 +44,7 @@ from todo_notifier import (
 from todo_scheduler import TodoScheduler
 from todo_store import TodoStore
 from todo_ui import TodoManagerWindow, TodoQuickPanel, TodoReminderBubble
+from tray_controller import TrayController
 
 
 _previous_qt_message_handler = None
@@ -148,6 +152,9 @@ class DesktopPet(QWidget):
         self._topmost_timer: Optional[QTimer] = None
         self._todo_enabled = enable_todos
         self._todo_badge_count = 0
+        self._reminders_paused = False
+        self._quit_requested = False
+        self._pinned = True
         self.todo_store: Optional[TodoStore] = todo_store
         self.holiday_calendar: Optional[HolidayCalendar] = holiday_calendar
         self.todo_scheduler: Optional[TodoScheduler] = None
@@ -155,12 +162,16 @@ class DesktopPet(QWidget):
         self.todo_manager: Optional[TodoManagerWindow] = None
         self.todo_quick_panel: Optional[TodoQuickPanel] = None
         self.todo_bubble: Optional[TodoReminderBubble] = None
+        self.tray: Optional[TrayController] = None
+        self.settings_window: Optional[SettingsWindow] = None
         self._pressed_badge = False
 
         self._init_ui()
         self._restore_source()
         if self._todo_enabled:
             self._init_todos()
+        self._init_tray()
+        self._apply_saved_settings()
 
     def _init_ui(self):
         flags = Qt.FramelessWindowHint | Qt.Tool
@@ -399,17 +410,19 @@ class DesktopPet(QWidget):
             QTimer.singleShot(0, self._restore_position)
         if sys.platform == "darwin":
             for delay in (0, 200, 500, 1500):
-                QTimer.singleShot(delay, self._pin_macos_topmost)
+                QTimer.singleShot(delay, lambda: self._pin_macos_topmost(self._pinned))
             if self._topmost_timer is None:
                 self._topmost_timer = QTimer(self)
                 self._topmost_timer.timeout.connect(self._keep_on_top)
                 self._topmost_timer.start(3000)
 
     def _keep_on_top(self):
-        if sys.platform == "darwin":
-            self._pin_macos_topmost()
+        if sys.platform == "darwin" and self._pinned:
+            self._pin_macos_topmost(True)
 
-    def _pin_macos_topmost(self):
+    def _pin_macos_topmost(self, floating: bool = True):
+        if QGuiApplication.platformName() == "offscreen":
+            return
         try:
             objc = ctypes.cdll.LoadLibrary(ctypes.util.find_library("objc"))
             c_void_p = ctypes.c_void_p
@@ -431,7 +444,7 @@ class DesktopPet(QWidget):
             if not nswindow:
                 return
 
-            target_level = 1000
+            target_level = 1000 if floating else 0
             current_level = ctypes.cast(objc.objc_msgSend, msg_long)(
                 nswindow, selector(b"level")
             )
@@ -783,7 +796,7 @@ class DesktopPet(QWidget):
             if filename:
                 self._load_gif(filename)
         elif selected == quit_action:
-            qApp.quit()
+            self.quit_app()
 
     def _apply_preset(self, size):
         if hasattr(self, "_size_slider"):
@@ -942,8 +955,15 @@ class DesktopPet(QWidget):
     def _show_todo_reminders(self, occurrences):
         if not self._todo_enabled:
             return
+        if self._reminders_paused:
+            return
+        if not self._setting_bool("todo/notifications_enabled"):
+            return
         if self.todo_bubble is None:
-            self.todo_bubble = TodoReminderBubble(self)
+            self.todo_bubble = TodoReminderBubble(
+                self,
+                visible_ms=self._setting_int("todo/bubble_ms"),
+            )
             self.todo_bubble.clicked.connect(self.open_todo_manager)
         self.todo_bubble.show_for_occurrences(list(occurrences), self)
 
@@ -958,7 +978,137 @@ class DesktopPet(QWidget):
             self.todo_quick_panel.hide()
         if self.todo_bubble is not None:
             self.todo_bubble.hide()
+        if self.tray is not None and not self._quit_requested:
+            self.hide()
+            event.ignore()
+            return
         super().closeEvent(event)
+
+    # ------------------------------------------------------------------
+    # M1：设置 / 托盘 / 自启
+    # ------------------------------------------------------------------
+
+    def _setting_bool(self, key: str) -> bool:
+        return self.settings.value(key, DEFAULT_SETTINGS.get(key, True), type=bool)
+
+    def _setting_int(self, key: str) -> int:
+        return self.settings.value(key, DEFAULT_SETTINGS.get(key, 0), type=int)
+
+    def _setting_float(self, key: str) -> float:
+        return self.settings.value(key, DEFAULT_SETTINGS.get(key, 1.0), type=float)
+
+    def _apply_saved_settings(self) -> None:
+        self.setWindowOpacity(self._setting_float("pet/opacity"))
+        self._apply_pinned(self._setting_bool("pet/pinned"))
+        interactive = self._setting_bool("pet/interactive")
+        self.interaction.activate(
+            interactive and self.current_source_type == "package"
+        )
+        self._apply_poll_interval(self._setting_int("todo/poll_minutes"))
+
+    def _apply_pinned(self, pinned: bool) -> None:
+        self._pinned = bool(pinned)
+        if sys.platform == "darwin":
+            if self.isVisible():
+                QTimer.singleShot(0, lambda: self._pin_macos_topmost(self._pinned))
+            return
+        flags = Qt.FramelessWindowHint | Qt.Tool
+        if self._pinned:
+            flags |= Qt.WindowStaysOnTopHint
+        was_visible = self.isVisible()
+        position = self.pos()
+        self.setWindowFlags(flags)
+        if was_visible:
+            self.move(position)
+            self.show()
+
+    def _apply_poll_interval(self, minutes: int) -> None:
+        if self.todo_scheduler is None:
+            return
+        self.todo_scheduler.poll_step_minutes = max(1, min(60, int(minutes)))
+        if not self._reminders_paused:
+            self.todo_scheduler.stop()
+            self.todo_scheduler.start()
+
+    def _on_setting_changed(self, key: str, value) -> None:
+        if key == "pet/size":
+            self.set_pet_size(int(value))
+        elif key == "pet/opacity":
+            self.setWindowOpacity(float(value))
+        elif key == "pet/pinned":
+            self._apply_pinned(bool(value))
+        elif key == "pet/interactive":
+            self.interaction.activate(
+                bool(value) and self.current_source_type == "package"
+            )
+        elif key == "todo/notifications_enabled":
+            if not value and self.todo_bubble is not None:
+                self.todo_bubble.hide()
+        elif key == "todo/bubble_ms":
+            if self.todo_bubble is not None:
+                self.todo_bubble.visible_ms = int(value)
+        elif key == "todo/poll_minutes":
+            self._apply_poll_interval(int(value))
+        elif key == "sound/enabled":
+            pass  # M3 接入音效
+
+    def open_settings_window(self) -> None:
+        if self.settings_window is None:
+            self.settings_window = SettingsWindow(self.settings, self)
+            self.settings_window.changed.connect(self._on_setting_changed)
+            self.settings_window.autostart_changed.connect(self._set_autostart)
+        self.settings_window.show()
+        self.settings_window.raise_()
+        self.settings_window.activateWindow()
+
+    def _set_autostart(self, enabled: bool) -> None:
+        try:
+            set_autostart(enabled)
+        except Exception as exc:
+            QMessageBox.warning(self, "无法设置开机自启", str(exc))
+            if self.settings_window is not None:
+                self.settings_window.set_autostart_checked(not enabled)
+            return
+        self.settings.setValue("autostart/enabled", enabled)
+
+    def _init_tray(self) -> None:
+        if not QSystemTrayIcon.isSystemTrayAvailable():
+            return
+        self.tray = TrayController(QIcon(resource_path("icon.png")), self)
+        self.tray.toggle_visibility_requested.connect(self.toggle_visibility)
+        self.tray.manage_todo_requested.connect(self.open_todo_manager)
+        self.tray.toggle_reminders_requested.connect(self.set_reminders_paused)
+        self.tray.settings_requested.connect(self.open_settings_window)
+        self.tray.quit_requested.connect(self.quit_app)
+        self.tray.show()
+
+    def toggle_visibility(self) -> None:
+        if self.isVisible():
+            self.hide()
+            return
+        self.show()
+        self._keep_current_position_visible()
+        if sys.platform == "darwin":
+            QTimer.singleShot(0, lambda: self._pin_macos_topmost(self._pinned))
+
+    def set_reminders_paused(self, paused: bool) -> None:
+        self._reminders_paused = bool(paused)
+        if self.tray is not None:
+            self.tray.set_reminders_paused(self._reminders_paused)
+        if self._reminders_paused:
+            if self.todo_scheduler is not None:
+                self.todo_scheduler.stop()
+            if self.todo_bubble is not None:
+                self.todo_bubble.hide()
+        elif self.todo_scheduler is not None:
+            self.todo_scheduler.start()
+
+    def quit_app(self) -> None:
+        self._quit_requested = True
+        self.hide()
+        if self.tray is not None:
+            self.tray.hide()
+        qApp.quit()
 
 
 def main():

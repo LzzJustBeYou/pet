@@ -18,6 +18,8 @@ from PyQt5.QtWidgets import (
 from PyQt5.QtCore import Qt, QThread, pyqtSignal
 from PyQt5.QtGui import QIcon
 
+from autostart import write_windows_run_entry
+
 APP_NAME = "DesktopPet"
 APP_DISPLAY_NAME = "桌面宠物 DesktopPet"
 
@@ -152,15 +154,7 @@ class InstallThread(QThread):
 
     def _write_autostart_registry(self, exe_path):
         """写入 Run 键实现开机自启。"""
-        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
-        try:
-            key = winreg.OpenKey(
-                winreg.HKEY_CURRENT_USER, key_path, 0, winreg.KEY_SET_VALUE,
-            )
-            winreg.SetValueEx(key, APP_NAME, 0, winreg.REG_SZ, exe_path)
-            winreg.CloseKey(key)
-        except Exception as e:
-            raise RuntimeError(f"写入自启动注册表失败: {e}")
+        write_windows_run_entry(exe_path)
 
     # ── 卸载脚本 ──
 
