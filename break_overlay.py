@@ -20,7 +20,9 @@ class BreakOverlay(QWidget):
     skipped = pyqtSignal()
 
     def __init__(self, parent: Optional[QWidget] = None):
-        flags = Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
+        # 必须带 Qt.Tool（含 Qt.Window），否则会变成父窗口的子控件，
+        # 深色背景会直接盖在宠物贴图上形成"黑色蒙版"。
+        flags = Qt.Tool | Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint
         super().__init__(parent, flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)

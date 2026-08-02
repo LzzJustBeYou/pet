@@ -188,6 +188,7 @@ class DesktopPet(QWidget):
         self.health.break_skipped.connect(self._on_health_break_skipped)
         self.break_overlay = BreakOverlay(self)
         self.break_overlay.skipped.connect(self.health.skip_break)
+        self.break_overlay.hide()
         self.sound = SoundManager(
             self,
             enabled_provider=lambda: self._setting_bool("sound/enabled"),

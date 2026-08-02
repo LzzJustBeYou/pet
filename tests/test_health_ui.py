@@ -34,6 +34,12 @@ class HealthUiIntegrationTests(unittest.TestCase):
         self.settings.sync()
         self.temp_dir.cleanup()
 
+    def test_break_overlay_not_visible_at_startup(self):
+        # 回归：浮层必须是独立顶层窗口，不能作为子控件盖在宠物上
+        self.assertTrue(self.pet.isVisible())
+        self.assertFalse(self.pet.break_overlay.isVisible())
+        self.assertIs(self.pet.break_overlay.window(), self.pet.break_overlay)
+
     def test_break_start_shows_overlay(self):
         self.pet.health.start_break_now()
         self.assertTrue(self.pet.break_overlay.isVisible())
