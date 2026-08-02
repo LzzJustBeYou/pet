@@ -1,5 +1,6 @@
 import os
 import shutil
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -42,6 +43,15 @@ class DesktopPetTests(unittest.TestCase):
     def test_existing_gif_remains_first_start_default(self):
         self.assertEqual(self.pet.current_source_type, "gif")
         self.assertTrue(self.pet.current_gif.endswith("臭臭小八.gif"))
+
+    def test_pet_window_is_always_on_top(self):
+        self.assertTrue(self.pet.windowFlags() & Qt.WindowStaysOnTopHint)
+        if sys.platform == "darwin":
+            with patch("main.DesktopPet._pin_macos_topmost") as mock_pin:
+                self.pet.show()
+                self.app.processEvents()
+                QTest.qWait(50)
+                self.assertGreaterEqual(mock_pin.call_count, 1)
 
     def test_switches_to_bundled_interactive_pet(self):
         entry = next(

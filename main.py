@@ -200,9 +200,9 @@ class DesktopPet(QWidget):
         self._apply_saved_settings()
 
     def _init_ui(self):
-        flags = Qt.FramelessWindowHint | Qt.Tool
-        if sys.platform != "darwin":
-            flags |= Qt.WindowStaysOnTopHint
+        # 所有平台都声明置顶：Windows/Linux 由 Qt 维护，
+        # macOS 额外用 objc 把窗口层级硬拉到 1000（kCGScreenSaverWindowLevel）。
+        flags = Qt.FramelessWindowHint | Qt.Tool | Qt.WindowStaysOnTopHint
         self.setWindowFlags(flags)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setAttribute(Qt.WA_ShowWithoutActivating)
