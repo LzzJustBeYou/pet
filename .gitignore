@@ -15,6 +15,9 @@
 !/todo_scheduler.py
 !/todo_store.py
 !/todo_ui.py
+!/autostart.py
+!/tray_controller.py
+!/settings_window.py
 !/generate_icons.py
 !/icon.png
 !/icon.ico
@@ -27,6 +30,8 @@
 !/pets/**
 !/tests
 !/tests/**
+!/docs
+!/docs/**
 __pycache__/
 *.py[cod]
 
