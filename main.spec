@@ -8,6 +8,7 @@ a = Analysis(
     datas=[
         ('actions', 'actions'),
         ('pets', 'pets'),
+        ('assets', 'assets'),
         ('icon.png', '.'),
     ],
     hiddenimports=[],

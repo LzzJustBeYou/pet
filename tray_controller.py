@@ -11,6 +11,8 @@ class TrayController(QObject):
     toggle_visibility_requested = pyqtSignal()
     manage_todo_requested = pyqtSignal()
     toggle_reminders_requested = pyqtSignal(bool)
+    health_pause_requested = pyqtSignal(bool)
+    health_break_now_requested = pyqtSignal()
     settings_requested = pyqtSignal()
     quit_requested = pyqtSignal()
 
@@ -26,6 +28,20 @@ class TrayController(QObject):
 
         manage_action = self._menu.addAction("管理待办")
         manage_action.triggered.connect(self.manage_todo_requested.emit)
+        self._menu.addSeparator()
+
+        health_menu = self._menu.addMenu("健康提醒")
+        self._health_pause_action = health_menu.addAction("暂停提醒")
+        self._health_pause_action.setCheckable(True)
+        self._health_pause_action.toggled.connect(
+            self.health_pause_requested.emit
+        )
+        break_now_action = health_menu.addAction("立即休息")
+        break_now_action.triggered.connect(
+            self.health_break_now_requested.emit
+        )
+        self._menu.addSeparator()
+
         self._reminders_action = self._menu.addAction("暂停提醒")
         self._reminders_action.setCheckable(True)
         self._reminders_action.toggled.connect(
@@ -51,6 +67,11 @@ class TrayController(QObject):
         self._reminders_action.blockSignals(True)
         self._reminders_action.setChecked(bool(paused))
         self._reminders_action.blockSignals(False)
+
+    def set_health_paused(self, paused: bool) -> None:
+        self._health_pause_action.blockSignals(True)
+        self._health_pause_action.setChecked(bool(paused))
+        self._health_pause_action.blockSignals(False)
 
     def _on_activated(
         self,

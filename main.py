@@ -24,6 +24,8 @@ from PyQt5.QtWidgets import (
 
 from animation import GifVisual, SpriteAtlasPlayer, load_gif_visual
 from autostart import set_autostart
+from break_overlay import BreakOverlay
+from health_reminder import HealthReminderController
 from interaction import PetInteractionController
 from pet_package import (
     PetPackage,
@@ -33,6 +35,7 @@ from pet_package import (
     load_pet_package,
 )
 from settings_window import DEFAULT_SETTINGS, SettingsWindow
+from sound import SoundManager
 from holiday_calendar import HolidayCalendar
 from todo_models import local_now
 from todo_notifier import (
@@ -164,9 +167,28 @@ class DesktopPet(QWidget):
         self.todo_bubble: Optional[TodoReminderBubble] = None
         self.tray: Optional[TrayController] = None
         self.settings_window: Optional[SettingsWindow] = None
+        self.break_overlay: Optional[BreakOverlay] = None
         self._pressed_badge = False
 
         self._init_ui()
+        self.health = HealthReminderController(
+            self,
+            work_minutes=self._setting_int("health/work_minutes"),
+            break_seconds=self._setting_int("health/break_seconds"),
+            long_break_every=self._setting_int("health/long_break_every"),
+            long_break_minutes=self._setting_int("health/long_break_minutes"),
+            enabled=self._setting_bool("health/enabled"),
+        )
+        self.health.break_started.connect(self._on_health_break_started)
+        self.health.break_ticked.connect(self._on_health_break_ticked)
+        self.health.break_finished.connect(self._on_health_break_finished)
+        self.health.break_skipped.connect(self._on_health_break_skipped)
+        self.break_overlay = BreakOverlay(self)
+        self.break_overlay.skipped.connect(self.health.skip_break)
+        self.sound = SoundManager(
+            self,
+            enabled_provider=lambda: self._setting_bool("sound/enabled"),
+        )
         self._restore_source()
         if self._todo_enabled:
             self._init_todos()
@@ -978,6 +1000,10 @@ class DesktopPet(QWidget):
             self.todo_quick_panel.hide()
         if self.todo_bubble is not None:
             self.todo_bubble.hide()
+        if getattr(self, "health", None) is not None:
+            self.health.stop_all()
+        if getattr(self, "break_overlay", None) is not None:
+            self.break_overlay.hide()
         if self.tray is not None and not self._quit_requested:
             self.hide()
             event.ignore()
@@ -1005,6 +1031,7 @@ class DesktopPet(QWidget):
             interactive and self.current_source_type == "package"
         )
         self._apply_poll_interval(self._setting_int("todo/poll_minutes"))
+        self.health.start()
 
     def _apply_pinned(self, pinned: bool) -> None:
         self._pinned = bool(pinned)
@@ -1050,7 +1077,17 @@ class DesktopPet(QWidget):
         elif key == "todo/poll_minutes":
             self._apply_poll_interval(int(value))
         elif key == "sound/enabled":
-            pass  # M3 接入音效
+            pass  # SoundManager 在播放时读取开关
+        elif key == "health/enabled":
+            self.health.apply_config(enabled=bool(value))
+        elif key == "health/work_minutes":
+            self.health.apply_config(work_minutes=int(value))
+        elif key == "health/break_seconds":
+            self.health.apply_config(break_seconds=int(value))
+        elif key == "health/long_break_every":
+            self.health.apply_config(long_break_every=int(value))
+        elif key == "health/long_break_minutes":
+            self.health.apply_config(long_break_minutes=int(value))
 
     def open_settings_window(self) -> None:
         if self.settings_window is None:
@@ -1078,9 +1115,37 @@ class DesktopPet(QWidget):
         self.tray.toggle_visibility_requested.connect(self.toggle_visibility)
         self.tray.manage_todo_requested.connect(self.open_todo_manager)
         self.tray.toggle_reminders_requested.connect(self.set_reminders_paused)
+        self.tray.health_pause_requested.connect(self.set_health_paused)
+        self.tray.health_break_now_requested.connect(self.health.start_break_now)
         self.tray.settings_requested.connect(self.open_settings_window)
         self.tray.quit_requested.connect(self.quit_app)
         self.tray.show()
+
+    def set_health_paused(self, paused: bool) -> None:
+        self.health.set_paused(bool(paused))
+        if self.tray is not None:
+            self.tray.set_health_paused(bool(paused))
+
+    # ------------------------------------------------------------------
+    # 健康提醒（Eye Monitor / Stretchly 风格）
+    # ------------------------------------------------------------------
+
+    def _on_health_break_started(self, kind: str, seconds: int) -> None:
+        self.sound.play("remind")
+        screen = self._screen_for_point(self.frameGeometry().center())
+        self.break_overlay.show_break(
+            kind, seconds, screen.availableGeometry()
+        )
+
+    def _on_health_break_ticked(self, remaining: int) -> None:
+        self.break_overlay.update_remaining(remaining)
+
+    def _on_health_break_finished(self, _kind: str) -> None:
+        self.break_overlay.hide()
+        self.sound.play("complete")
+
+    def _on_health_break_skipped(self, _kind: str) -> None:
+        self.break_overlay.hide()
 
     def toggle_visibility(self) -> None:
         if self.isVisible():

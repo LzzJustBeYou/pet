@@ -34,6 +34,10 @@ def collect_add_data():
     if CALENDAR_DIR.exists():
         args.extend(["--add-data", f"calendar_data{sep}calendar_data"])
 
+    assets_dir = ROOT / "assets"
+    if assets_dir.exists():
+        args.extend(["--add-data", f"assets{sep}assets"])
+
     # 图标文件
     for ext in (".png", ".ico", ".icns"):
         icon_file = ROOT / f"icon{ext}"

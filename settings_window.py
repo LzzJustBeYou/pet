@@ -27,6 +27,11 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "todo/poll_minutes": 5,
     "sound/enabled": False,
     "autostart/enabled": False,
+    "health/enabled": True,
+    "health/work_minutes": 20,
+    "health/break_seconds": 20,
+    "health/long_break_every": 4,
+    "health/long_break_minutes": 5,
 }
 
 POLL_CHOICES = [("1 分钟", 1), ("5 分钟", 5)]
@@ -117,10 +122,53 @@ class SettingsWindow(QWidget):
         # ── 声音 ──
         sound_group = QGroupBox("声音")
         sound_form = QFormLayout(sound_group)
-        self.sound_check = QCheckBox("启用音效（M3 生效）")
+        self.sound_check = QCheckBox("启用音效")
         self.sound_check.setChecked(bool(read_setting(settings, "sound/enabled")))
         sound_form.addRow("", self.sound_check)
         layout.addWidget(sound_group)
+
+        # ── 健康提醒 ──
+        health_group = QGroupBox("健康提醒")
+        health_form = QFormLayout(health_group)
+
+        self.health_enabled_check = QCheckBox("启用健康提醒")
+        self.health_enabled_check.setChecked(
+            bool(read_setting(settings, "health/enabled"))
+        )
+        health_form.addRow("", self.health_enabled_check)
+
+        self.work_minutes_spin = QSpinBox()
+        self.work_minutes_spin.setRange(1, 180)
+        self.work_minutes_spin.setSuffix(" 分钟")
+        self.work_minutes_spin.setValue(
+            int(read_setting(settings, "health/work_minutes"))
+        )
+        health_form.addRow("工作间隔", self.work_minutes_spin)
+
+        self.break_seconds_spin = QSpinBox()
+        self.break_seconds_spin.setRange(5, 300)
+        self.break_seconds_spin.setSuffix(" 秒")
+        self.break_seconds_spin.setValue(
+            int(read_setting(settings, "health/break_seconds"))
+        )
+        health_form.addRow("休息时长", self.break_seconds_spin)
+
+        self.long_break_every_spin = QSpinBox()
+        self.long_break_every_spin.setRange(2, 10)
+        self.long_break_every_spin.setSuffix(" 次")
+        self.long_break_every_spin.setValue(
+            int(read_setting(settings, "health/long_break_every"))
+        )
+        health_form.addRow("长休息间隔", self.long_break_every_spin)
+
+        self.long_break_minutes_spin = QSpinBox()
+        self.long_break_minutes_spin.setRange(1, 30)
+        self.long_break_minutes_spin.setSuffix(" 分钟")
+        self.long_break_minutes_spin.setValue(
+            int(read_setting(settings, "health/long_break_minutes"))
+        )
+        health_form.addRow("长休息时长", self.long_break_minutes_spin)
+        layout.addWidget(health_group)
 
         # ── 启动 ──
         startup_group = QGroupBox("启动")
@@ -152,6 +200,21 @@ class SettingsWindow(QWidget):
         self.poll_combo.currentIndexChanged.connect(self._poll_changed)
         self.sound_check.toggled.connect(
             lambda checked: self._emit("sound/enabled", bool(checked))
+        )
+        self.health_enabled_check.toggled.connect(
+            lambda checked: self._emit("health/enabled", bool(checked))
+        )
+        self.work_minutes_spin.valueChanged.connect(
+            lambda value: self._emit("health/work_minutes", int(value))
+        )
+        self.break_seconds_spin.valueChanged.connect(
+            lambda value: self._emit("health/break_seconds", int(value))
+        )
+        self.long_break_every_spin.valueChanged.connect(
+            lambda value: self._emit("health/long_break_every", int(value))
+        )
+        self.long_break_minutes_spin.valueChanged.connect(
+            lambda value: self._emit("health/long_break_minutes", int(value))
         )
         self.autostart_check.toggled.connect(self._autostart_toggled)
 
