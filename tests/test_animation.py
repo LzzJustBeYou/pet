@@ -4,10 +4,17 @@ from pathlib import Path
 
 os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
 
-from PyQt5.QtGui import QImageReader
+from PyQt5.QtCore import QRect, QSize, Qt
+from PyQt5.QtGui import QImage, QImageReader
 from PyQt5.QtWidgets import QApplication
 
-from animation import ANIMATION_SPECS, SpriteAtlasPlayer, load_gif_visual, scaled_canvas_size
+from animation import (
+    ANIMATION_SPECS,
+    GifVisual,
+    SpriteAtlasPlayer,
+    load_gif_visual,
+    scaled_canvas_size,
+)
 from pet_package import load_pet_package
 
 
@@ -79,6 +86,15 @@ class AnimationTests(unittest.TestCase):
         self.assertLess(union_bbox[1], first_bbox[1])
         self.assertGreater(union_bbox[2], first_bbox[2])
         self.assertGreater(union_bbox[3], first_bbox[3])
+
+    def test_opaque_gif_visual_uses_the_full_canvas_as_its_mask(self):
+        image = QImage(20, 10, QImage.Format_ARGB32_Premultiplied)
+        image.fill(Qt.white)
+
+        region = GifVisual(QSize(20, 10), image).mask_region(100)
+
+        self.assertFalse(region.isEmpty())
+        self.assertEqual(region.boundingRect(), QRect(0, 0, 200, 100))
 
     def test_one_shot_emits_finished_after_final_frame(self):
         package = load_pet_package(ROOT / "pets" / "xiaoba")

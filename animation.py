@@ -53,7 +53,14 @@ def _region_from_union(union: QImage, target_size: QSize, padding: int) -> QRegi
         Qt.IgnoreAspectRatio,
         Qt.SmoothTransformation,
     )
-    region = QRegion(QPixmap.fromImage(scaled).mask())
+    pixmap = QPixmap.fromImage(scaled)
+    if pixmap.isNull():
+        return QRegion()
+    alpha_mask = pixmap.mask()
+    if alpha_mask.isNull():
+        region = QRegion(QRect(0, 0, target_size.width(), target_size.height()))
+    else:
+        region = QRegion(alpha_mask)
     if padding > 0 and not region.isEmpty():
         expanded = QRegion(region)
         for dx in range(-padding, padding + 1):
