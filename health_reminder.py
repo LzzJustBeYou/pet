@@ -156,5 +156,7 @@ class HealthReminderController(QObject):
         kind = self._break_kind
         if kind == "micro":
             self._completed_breaks += 1
+        else:
+            self._completed_breaks = 0
         self.break_finished.emit(kind)
         self._schedule_work()
