@@ -42,6 +42,15 @@ class SettingsUiIntegrationTests(unittest.TestCase):
         window.size_slider.setValue(150)
         self.assertEqual(self.pet.pet_size, 150)
 
+    def test_open_settings_centers_window_on_current_screen(self):
+        window = self._open_settings()
+        screen = self.pet._screen_for_point(window.frameGeometry().center())
+        self.assertIsNotNone(screen)
+        self.assertEqual(
+            window.frameGeometry().center(),
+            screen.availableGeometry().center(),
+        )
+
     def test_health_toggle_disables_controller(self):
         window = self._open_settings()
         self.assertTrue(self.pet.health.enabled)

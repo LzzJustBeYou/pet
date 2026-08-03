@@ -1094,6 +1094,11 @@ class DesktopPet(QWidget):
             self.settings_window.changed.connect(self._on_setting_changed)
             self.settings_window.autostart_changed.connect(self._set_autostart)
         self.settings_window.show()
+        screen = self._screen_for_point(QCursor.pos())
+        if screen is not None:
+            frame = self.settings_window.frameGeometry()
+            frame.moveCenter(screen.availableGeometry().center())
+            self.settings_window.move(frame.topLeft())
         self.settings_window.raise_()
         self.settings_window.activateWindow()
 
