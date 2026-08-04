@@ -107,8 +107,7 @@ class PetInteractionController(QObject):
             self.current_state = "idle"
             self.animation_requested.emit("idle", True)
         elif direction != self.drag_direction and direction is not None:
-            self.current_state = f"running-{direction}"
-            self.animation_requested.emit(self.current_state, True)
+            self.set_movement_direction(direction)
         self.drag_direction = direction
         return DragUpdate(True, started, direction)
 
@@ -128,6 +127,19 @@ class PetInteractionController(QObject):
             return "drag"
 
         return "click"
+
+    def set_movement_direction(self, direction: Optional[str]) -> None:
+        """Set the shared animation state for dragged and automatic movement."""
+        if not self.interactive:
+            return
+        if direction not in (None, "left", "right"):
+            raise ValueError(f"unsupported movement direction: {direction}")
+
+        state = "idle" if direction is None else f"running-{direction}"
+        if state == self.current_state:
+            return
+        self.current_state = state
+        self.animation_requested.emit(state, True)
 
     def animation_finished(self, state: str) -> None:
         if self.dragging or state != self.current_state:

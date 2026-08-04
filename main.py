@@ -171,6 +171,8 @@ MAX_SIZE = 300
 DEFAULT_SIZE = 100
 DEFAULT_GIF_NAME = "臭臭小八"
 MIN_VISIBLE_PIXELS = 20
+WALK_INTERVAL_MS = 30
+WALK_STEP_PIXELS = 2
 
 # 预研分支遗留的宠物开关，已按 v0.3.0-tag 行为移除；启动时自动清理，
 # 避免旧构建或残留配置继续生效（如 pet/opacity=0.3 导致宠物半透明）。
@@ -229,6 +231,8 @@ class DesktopPet(QWidget):
         self.settings_window: Optional[SettingsWindow] = None
         self.break_overlay: Optional[BreakOverlay] = None
         self._pressed_badge = False
+        self.walking_enabled = False
+        self._walking_direction = "right"
 
         self._init_ui()
         self.health = HealthReminderController(
@@ -284,6 +288,9 @@ class DesktopPet(QWidget):
         self.sprite_player.animation_finished.connect(
             self.interaction.animation_finished
         )
+        self._walking_timer = QTimer(self)
+        self._walking_timer.setInterval(WALK_INTERVAL_MS)
+        self._walking_timer.timeout.connect(self._advance_walk)
 
     def _default_gif_path(self) -> Optional[str]:
         categories = scan_actions()
@@ -376,6 +383,7 @@ class DesktopPet(QWidget):
                 QMessageBox.warning(self, "无法加载 GIF", str(exc))
             return False
 
+        self.set_walking_enabled(False)
         if self.movie is not None:
             self.movie.stop()
         self.sprite_player.clear()
@@ -649,6 +657,65 @@ class DesktopPet(QWidget):
         if self.isVisible():
             self.move(self._clamp_position(self.pos()))
 
+    def set_walking_enabled(self, enabled: bool) -> bool:
+        enabled = bool(enabled)
+        if enabled and self.current_source_type != "package":
+            return False
+        if enabled == self.walking_enabled:
+            return self.walking_enabled
+
+        self.walking_enabled = enabled
+        if enabled:
+            bounds = self._walking_horizontal_bounds()
+            if bounds is not None and self.x() >= bounds[1]:
+                self._walking_direction = "left"
+            elif bounds is not None and self.x() <= bounds[0]:
+                self._walking_direction = "right"
+            self.interaction.set_movement_direction(self._walking_direction)
+            self._walking_timer.start()
+        else:
+            self._walking_timer.stop()
+            self.interaction.set_movement_direction(None)
+            self._save_position()
+        return self.walking_enabled
+
+    def _walking_horizontal_bounds(self):
+        screen = self._screen_for_point(self.frameGeometry().center())
+        if screen is None:
+            return None
+        geometry = screen.availableGeometry()
+        minimum_x = geometry.left()
+        maximum_x = max(minimum_x, geometry.right() - self.width() + 1)
+        return minimum_x, maximum_x
+
+    def _advance_walk(self) -> None:
+        if (
+            not self.walking_enabled
+            or self.current_source_type != "package"
+            or self.interaction.pressed
+        ):
+            return
+        bounds = self._walking_horizontal_bounds()
+        if bounds is None:
+            return
+
+        minimum_x, maximum_x = bounds
+        delta = (
+            WALK_STEP_PIXELS
+            if self._walking_direction == "right"
+            else -WALK_STEP_PIXELS
+        )
+        target_x = self.x() + delta
+        if target_x >= maximum_x:
+            target_x = maximum_x
+            self._walking_direction = "left"
+        elif target_x <= minimum_x:
+            target_x = minimum_x
+            self._walking_direction = "right"
+
+        self.move(target_x, self.y())
+        self.interaction.set_movement_direction(self._walking_direction)
+
     def _external_package_dir_from_key(self, source_key: Optional[str]) -> Optional[Path]:
         if source_key and source_key.startswith("external-package:"):
             return Path(source_key.split(":", 1)[1])
@@ -774,6 +841,7 @@ class DesktopPet(QWidget):
         package_actions = {}
         gif_actions = {}
         todo_action = None
+        walking_action = None
 
         if self._todo_enabled and self.todo_store is not None and self.holiday_calendar is not None:
             todo_action = menu.addAction("管理待办")
@@ -814,6 +882,12 @@ class DesktopPet(QWidget):
                 )
                 gif_actions[action] = gif_path
 
+        if self.current_source_type == "package":
+            menu.addSeparator()
+            walking_action = menu.addAction("遛弯")
+            walking_action.setCheckable(True)
+            walking_action.setChecked(self.walking_enabled)
+
         menu.addSeparator()
         size_menu = menu.addMenu("大小设置")
         self._build_size_menu(size_menu)
@@ -831,6 +905,8 @@ class DesktopPet(QWidget):
             self.open_todo_manager()
         elif selected in package_actions:
             self._load_package_entry(package_actions[selected])
+        elif selected == walking_action:
+            self.set_walking_enabled(walking_action.isChecked())
         elif selected in gif_actions:
             self._load_gif(gif_actions[selected])
         elif selected == load_pet_action:
@@ -1035,6 +1111,7 @@ class DesktopPet(QWidget):
             self.hide()
             event.ignore()
             return
+        self.set_walking_enabled(False)
         super().closeEvent(event)
 
     # ------------------------------------------------------------------
@@ -1171,6 +1248,7 @@ class DesktopPet(QWidget):
 
     def quit_app(self) -> None:
         self._quit_requested = True
+        self.set_walking_enabled(False)
         self.hide()
         if self.tray is not None:
             self.tray.hide()

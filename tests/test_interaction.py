@@ -84,6 +84,16 @@ class InteractionControllerTests(unittest.TestCase):
 
         self.assertEqual(self.requests[-1], ("running-left", True))
 
+    def test_programmatic_movement_uses_drag_animation_states(self):
+        self.controller.set_movement_direction("right")
+        self.assertEqual(self.requests[-1], ("running-right", True))
+
+        self.controller.set_movement_direction("left")
+        self.assertEqual(self.requests[-1], ("running-left", True))
+
+        self.controller.set_movement_direction(None)
+        self.assertEqual(self.requests[-1], ("idle", True))
+
 
 if __name__ == "__main__":
     unittest.main()

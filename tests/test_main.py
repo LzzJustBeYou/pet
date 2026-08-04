@@ -84,6 +84,58 @@ class DesktopPetTests(unittest.TestCase):
         self.assertEqual((self.pet.width(), self.pet.height()), (92, 100))
         self.assertFalse(self.pet._interaction_region.isEmpty())
 
+    def test_only_interactive_pet_can_start_walking(self):
+        self.assertFalse(self.pet.set_walking_enabled(True))
+        self.assertFalse(self.pet._walking_timer.isActive())
+
+        self._load_builtin_interactive_pet()
+        self.assertTrue(self.pet.set_walking_enabled(True))
+        self.assertTrue(self.pet._walking_timer.isActive())
+
+    def test_walking_reverses_at_screen_edges_and_stops_in_place(self):
+        self._load_builtin_interactive_pet()
+        bounds = self.pet._walking_horizontal_bounds()
+        self.assertIsNotNone(bounds)
+        minimum_x, maximum_x = bounds
+        self.pet.move(maximum_x - 1, 120)
+
+        self.pet.set_walking_enabled(True)
+        self.pet._walking_timer.stop()
+        self.pet._advance_walk()
+
+        self.assertEqual(self.pet.x(), maximum_x)
+        self.assertEqual(self.pet._walking_direction, "left")
+        self.assertEqual(self.pet.sprite_player.state, "running-left")
+
+        self.pet.move(minimum_x + 1, self.pet.y())
+        self.pet._advance_walk()
+        self.assertEqual(self.pet.x(), minimum_x)
+        self.assertEqual(self.pet._walking_direction, "right")
+        self.assertEqual(self.pet.sprite_player.state, "running-right")
+
+        self.pet.set_walking_enabled(False)
+        stopped_position = QPoint(self.pet.pos())
+        self.pet._advance_walk()
+        self.assertEqual(self.pet.pos(), stopped_position)
+        self.assertEqual(self.pet.sprite_player.state, "idle")
+
+    def test_switching_to_gif_stops_walking(self):
+        self._load_builtin_interactive_pet()
+        self.pet.set_walking_enabled(True)
+
+        self.assertTrue(self.pet._load_gif(self.pet._default_gif_path()))
+
+        self.assertFalse(self.pet.walking_enabled)
+        self.assertFalse(self.pet._walking_timer.isActive())
+
+    def _load_builtin_interactive_pet(self):
+        entry = next(
+            item
+            for item in self.pet._discover_pet_entries()
+            if item.origin == "builtin" and item.package is not None
+        )
+        self.assertTrue(self.pet._load_package_entry(entry, show_error=False))
+
     def test_duplicate_ids_receive_visible_numeric_suffixes(self):
         duplicate_dir = Path(self.temp_dir.name) / "duplicate"
         shutil.copytree(ROOT / "pets" / "xiaoba", duplicate_dir)
