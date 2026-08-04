@@ -15,6 +15,12 @@
 !/todo_scheduler.py
 !/todo_store.py
 !/todo_ui.py
+!/todo_ui_common.py
+!/todo_quick_panel.py
+!/todo_manager_window.py
+!/todo_reminder_bubble.py
+!/pet_catalog.py
+!/walking_controller.py
 !/autostart.py
 !/tray_controller.py
 !/settings_window.py

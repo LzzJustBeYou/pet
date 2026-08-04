@@ -2,9 +2,8 @@ import ctypes
 import ctypes.util
 import os
 import sys
-from dataclasses import dataclass
 from pathlib import Path
-from typing import List, Optional
+from typing import Optional
 
 from PyQt5.QtCore import QPoint, QSettings, QSize, Qt, QTimer, qInstallMessageHandler
 from PyQt5.QtGui import QCursor, QGuiApplication, QIcon, QMovie, QRegion
@@ -27,13 +26,7 @@ from autostart import set_autostart
 from break_overlay import BreakOverlay
 from health_reminder import HealthReminderController
 from interaction import PetInteractionController
-from pet_package import (
-    PetPackage,
-    PetPackageError,
-    canonical_path,
-    find_pet_directories,
-    load_pet_package,
-)
+from pet_catalog import PetCatalog, PetMenuEntry, resource_path, scan_actions
 from settings_window import DEFAULT_SETTINGS, SettingsWindow
 from sound import SoundManager
 from holiday_calendar import HolidayCalendar
@@ -48,6 +41,11 @@ from todo_scheduler import TodoScheduler
 from todo_store import TodoStore
 from todo_ui import TodoManagerWindow, TodoQuickPanel, TodoReminderBubble
 from tray_controller import TrayController
+from walking_controller import (
+    WALK_INTERVAL_MS,
+    WALK_STEP_PIXELS,
+    WalkingController,
+)
 
 
 _previous_qt_message_handler = None
@@ -129,37 +127,6 @@ def pin_macos_window_level(win_id: int, target_level: int = 1000) -> bool:
         return False
 
 
-def resource_path(relative_path):
-    """Return a resource path in development and PyInstaller builds."""
-    base_path = getattr(sys, "_MEIPASS", Path(__file__).resolve().parent)
-    return os.path.join(str(base_path), relative_path)
-
-
-def scan_actions(actions_dir="actions"):
-    """Return GIF actions grouped by their immediate parent directory."""
-    categories = []
-    target_dir = resource_path(actions_dir)
-    if not os.path.isdir(target_dir):
-        return categories
-
-    for category in sorted(os.listdir(target_dir)):
-        category_path = os.path.join(target_dir, category)
-        if not os.path.isdir(category_path):
-            continue
-        actions = []
-        for filename in sorted(os.listdir(category_path)):
-            if filename.lower().endswith(".gif"):
-                actions.append(
-                    (
-                        os.path.splitext(filename)[0],
-                        os.path.join(category_path, filename),
-                    )
-                )
-        if actions:
-            categories.append((category, actions))
-    return categories
-
-
 PRESET_SIZES = {
     "小（高度 80）": 80,
     "中（高度 100）": 100,
@@ -171,23 +138,9 @@ MAX_SIZE = 300
 DEFAULT_SIZE = 100
 DEFAULT_GIF_NAME = "臭臭小八"
 MIN_VISIBLE_PIXELS = 20
-WALK_INTERVAL_MS = 30
-WALK_STEP_PIXELS = 2
-
 # 预研分支遗留的宠物开关，已按 v0.3.0-tag 行为移除；启动时自动清理，
 # 避免旧构建或残留配置继续生效（如 pet/opacity=0.3 导致宠物半透明）。
 OBSOLETE_SETTINGS_KEYS = ("pet/opacity", "pet/pinned", "pet/interactive")
-
-
-@dataclass
-class PetMenuEntry:
-    package_dir: Path
-    source_key: str
-    origin: str
-    package: Optional[PetPackage] = None
-    error: Optional[str] = None
-    runtime_id: str = ""
-    display_name: str = ""
 
 
 class DesktopPet(QWidget):
@@ -200,6 +153,7 @@ class DesktopPet(QWidget):
     ):
         super().__init__()
         self.settings = settings or QSettings("PetApp", "DesktopPet")
+        self.pet_catalog = PetCatalog()
         saved_size = self.settings.value("pet/size", DEFAULT_SIZE, type=int)
         self.pet_size = max(MIN_SIZE, min(MAX_SIZE, saved_size))
 
@@ -231,8 +185,13 @@ class DesktopPet(QWidget):
         self.settings_window: Optional[SettingsWindow] = None
         self.break_overlay: Optional[BreakOverlay] = None
         self._pressed_badge = False
-        self.walking_enabled = False
-        self._walking_direction = "right"
+        self.walking_controller = WalkingController(
+            self,
+            interval_ms=WALK_INTERVAL_MS,
+            step_pixels=WALK_STEP_PIXELS,
+        )
+        self._walking_timer = self.walking_controller.timer
+        self._walking_timer.timeout.connect(self._advance_walk)
         self._break_animation_active = False
 
         self._init_ui()
@@ -289,9 +248,22 @@ class DesktopPet(QWidget):
         self.sprite_player.animation_finished.connect(
             self.interaction.animation_finished
         )
-        self._walking_timer = QTimer(self)
-        self._walking_timer.setInterval(WALK_INTERVAL_MS)
-        self._walking_timer.timeout.connect(self._advance_walk)
+
+    @property
+    def walking_enabled(self) -> bool:
+        return self.walking_controller.enabled
+
+    @walking_enabled.setter
+    def walking_enabled(self, enabled: bool) -> None:
+        self.walking_controller.set_enabled(enabled)
+
+    @property
+    def _walking_direction(self) -> str:
+        return self.walking_controller.direction
+
+    @_walking_direction.setter
+    def _walking_direction(self, direction: str) -> None:
+        self.walking_controller.set_direction(direction)
 
     def _default_gif_path(self) -> Optional[str]:
         categories = scan_actions()
@@ -460,21 +432,10 @@ class DesktopPet(QWidget):
             self.settings.remove("pet/manual_package_dirs")
 
     def _gif_key(self, gif_path: str) -> str:
-        resolved = Path(gif_path).resolve()
-        action_root = Path(resource_path("actions")).resolve()
-        try:
-            relative = resolved.relative_to(action_root)
-            return f"builtin-gif:{relative.as_posix()}"
-        except ValueError:
-            return f"external-gif:{resolved}"
+        return self.pet_catalog.gif_key(gif_path)
 
     def _resolve_gif_key(self, key: str) -> Optional[str]:
-        if key.startswith("builtin-gif:"):
-            relative = key.split(":", 1)[1]
-            return str(Path(resource_path("actions")) / Path(relative))
-        if key.startswith("external-gif:"):
-            return key.split(":", 1)[1]
-        return key or None
+        return self.pet_catalog.resolve_gif_key(key)
 
     def set_pet_size(self, new_size):
         new_size = max(MIN_SIZE, min(MAX_SIZE, new_size))
@@ -671,10 +632,7 @@ class DesktopPet(QWidget):
         self.walking_enabled = enabled
         if enabled:
             bounds = self._walking_horizontal_bounds()
-            if bounds is not None and self.x() >= bounds[1]:
-                self._walking_direction = "left"
-            elif bounds is not None and self.x() <= bounds[0]:
-                self._walking_direction = "right"
+            self.walking_controller.align_direction(self.x(), bounds)
             self.interaction.set_movement_direction(self._walking_direction)
         else:
             self.interaction.set_movement_direction(None)
@@ -697,10 +655,7 @@ class DesktopPet(QWidget):
             and self.current_source_type == "package"
             and not self._walking_is_suspended()
         )
-        if can_walk:
-            self._walking_timer.start()
-        else:
-            self._walking_timer.stop()
+        self.walking_controller.sync_timer(can_walk)
 
     def _walking_horizontal_bounds(self):
         screen = self._screen_for_point(self.frameGeometry().center())
@@ -723,41 +678,17 @@ class DesktopPet(QWidget):
         if bounds is None:
             return
 
-        minimum_x, maximum_x = bounds
-        delta = (
-            WALK_STEP_PIXELS
-            if self._walking_direction == "right"
-            else -WALK_STEP_PIXELS
-        )
-        target_x = self.x() + delta
-        if target_x >= maximum_x:
-            target_x = maximum_x
-            self._walking_direction = "left"
-        elif target_x <= minimum_x:
-            target_x = minimum_x
-            self._walking_direction = "right"
-
-        self.move(target_x, self.y())
-        self.interaction.set_movement_direction(self._walking_direction)
+        step = self.walking_controller.advance(self.x(), bounds)
+        if step is None:
+            return
+        self.move(step.x, self.y())
+        self.interaction.set_movement_direction(step.direction)
 
     def _external_package_dir_from_key(self, source_key: Optional[str]) -> Optional[Path]:
-        if source_key and source_key.startswith("external-package:"):
-            return Path(source_key.split(":", 1)[1])
-        return None
+        return self.pet_catalog.external_package_dir_from_key(source_key)
 
     def _package_entry_from_key(self, source_key: str) -> Optional[PetMenuEntry]:
-        builtin_root = Path(resource_path("pets")).resolve()
-        if source_key.startswith("builtin-package:"):
-            relative = source_key.split(":", 1)[1]
-            return self._package_entry_for_dir(
-                builtin_root / Path(relative),
-                "builtin",
-                builtin_root,
-            )
-        external_dir = self._external_package_dir_from_key(source_key)
-        if external_dir is not None:
-            return self._package_entry_for_dir(external_dir, "local", builtin_root)
-        return None
+        return self.pet_catalog.entry_from_key(source_key)
 
     def _package_entry_for_dir(
         self,
@@ -765,74 +696,13 @@ class DesktopPet(QWidget):
         origin: str,
         builtin_root: Path,
     ) -> PetMenuEntry:
-        package_dir = Path(raw_path).expanduser().resolve()
-        if origin == "builtin":
-            try:
-                relative = package_dir.relative_to(builtin_root).as_posix()
-            except ValueError:
-                relative = package_dir.name
-            source_key = f"builtin-package:{relative}"
-        else:
-            source_key = f"external-package:{package_dir}"
+        return self.pet_catalog.entry_for_dir(raw_path, origin, builtin_root)
 
-        try:
-            package = load_pet_package(package_dir)
-            return PetMenuEntry(
-                package_dir=package_dir,
-                source_key=source_key,
-                origin=origin,
-                package=package,
-            )
-        except PetPackageError as exc:
-            return PetMenuEntry(
-                package_dir=package_dir,
-                source_key=source_key,
-                origin=origin,
-                error=str(exc),
-                display_name=f"{package_dir.name}（不可用）",
-            )
-
-    def _discover_pet_entries(self) -> List[PetMenuEntry]:
-        entries: List[PetMenuEntry] = []
-        seen_paths = set()
-        builtin_root = Path(resource_path("pets")).resolve()
-
-        candidates = []
-        for path in find_pet_directories(builtin_root):
-            candidates.append((path, "builtin"))
-        current_external_dir = self._external_package_dir_from_key(
-            self.current_source_key
-            if self.current_source_type == "package"
-            else None
+    def _discover_pet_entries(self) -> list[PetMenuEntry]:
+        return self.pet_catalog.discover_entries(
+            self.current_source_type,
+            self.current_source_key,
         )
-        if current_external_dir is not None:
-            candidates.append((current_external_dir, "local"))
-
-        for raw_path, origin in candidates:
-            path_key = canonical_path(raw_path)
-            if path_key in seen_paths:
-                continue
-            seen_paths.add(path_key)
-            entry = self._package_entry_for_dir(raw_path, origin, builtin_root)
-            if entry.package is None and origin == "builtin":
-                print(
-                    f"[DesktopPet] skipped invalid pet {entry.package_dir}: {entry.error}",
-                    file=sys.stderr,
-                )
-                continue
-            entries.append(entry)
-
-        duplicate_counts = {}
-        for entry in entries:
-            if entry.package is None:
-                continue
-            pet_id = entry.package.pet_id
-            count = duplicate_counts.get(pet_id, 0) + 1
-            duplicate_counts[pet_id] = count
-            suffix = "" if count == 1 else f"-{count}"
-            entry.runtime_id = f"{pet_id}{suffix}"
-            entry.display_name = f"{entry.package.display_name}{suffix}"
-        return entries
 
     def _load_manual_pet(self):
         directory = QFileDialog.getExistingDirectory(
@@ -842,15 +712,11 @@ class DesktopPet(QWidget):
         )
         if not directory:
             return
-        try:
-            entry = self._package_entry_for_dir(
-                directory,
-                "local",
-                Path(resource_path("pets")).resolve(),
-            )
-        except PetPackageError as exc:
-            QMessageBox.warning(self, "无法加载互动宠物", str(exc))
-            return
+        entry = self._package_entry_for_dir(
+            directory,
+            "local",
+            self.pet_catalog.builtin_root,
+        )
         if entry.package is None:
             QMessageBox.warning(self, "无法加载互动宠物", entry.error or "资源包无效")
             return
