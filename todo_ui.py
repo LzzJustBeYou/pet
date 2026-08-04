@@ -135,6 +135,7 @@ class SteppedTimeEdit(QTimeEdit):
 
 class TodoQuickPanel(QWidget):
     manage_requested = pyqtSignal(object)
+    visibility_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -245,6 +246,14 @@ class TodoQuickPanel(QWidget):
             self.hide()
             return
         self.show_near(anchor)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.visibility_changed.emit(True)
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.visibility_changed.emit(False)
 
     def show_near(self, anchor: QWidget) -> None:
         self.refresh()
@@ -391,6 +400,7 @@ class TodoQuickPanel(QWidget):
 class TodoManagerWindow(QWidget):
     todos_changed = pyqtSignal()
     calendar_changed = pyqtSignal()
+    visibility_changed = pyqtSignal(bool)
 
     def __init__(
         self,
@@ -609,6 +619,14 @@ class TodoManagerWindow(QWidget):
         wanted = Qt.Vertical if self.width() < 620 else Qt.Horizontal
         if self.splitter.orientation() != wanted:
             self.splitter.setOrientation(wanted)
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        self.visibility_changed.emit(True)
+
+    def hideEvent(self, event) -> None:
+        super().hideEvent(event)
+        self.visibility_changed.emit(False)
 
     def closeEvent(self, event) -> None:
         event.ignore()

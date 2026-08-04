@@ -233,6 +233,7 @@ class DesktopPet(QWidget):
         self._pressed_badge = False
         self.walking_enabled = False
         self._walking_direction = "right"
+        self._break_animation_active = False
 
         self._init_ui()
         self.health = HealthReminderController(
@@ -445,6 +446,7 @@ class DesktopPet(QWidget):
         window_region, interaction_region = self.sprite_player.mask_regions()
         self._apply_regions(window_region, interaction_region)
         self.interaction.activate(True)
+        self._sync_walking_timer()
 
         if persist:
             self._persist_source()
@@ -566,6 +568,8 @@ class DesktopPet(QWidget):
             elif result == "click":
                 if self._pressed_badge and self._todo_badge_contains(event.pos()):
                     self.toggle_todo_quick_panel()
+                else:
+                    self.interaction.trigger_reaction("waving")
             self._pressed_badge = False
             QTimer.singleShot(0, self._sync_pointer_hit)
             event.accept()
@@ -672,12 +676,31 @@ class DesktopPet(QWidget):
             elif bounds is not None and self.x() <= bounds[0]:
                 self._walking_direction = "right"
             self.interaction.set_movement_direction(self._walking_direction)
+        else:
+            self.interaction.set_movement_direction(None)
+            self._save_position()
+        self._sync_walking_timer()
+        return self.walking_enabled
+
+    def _review_window_visible(self) -> bool:
+        return bool(
+            (self.todo_manager is not None and self.todo_manager.isVisible())
+            or (self.todo_quick_panel is not None and self.todo_quick_panel.isVisible())
+        )
+
+    def _walking_is_suspended(self) -> bool:
+        return self._break_animation_active or self._review_window_visible()
+
+    def _sync_walking_timer(self) -> None:
+        can_walk = (
+            self.walking_enabled
+            and self.current_source_type == "package"
+            and not self._walking_is_suspended()
+        )
+        if can_walk:
             self._walking_timer.start()
         else:
             self._walking_timer.stop()
-            self.interaction.set_movement_direction(None)
-            self._save_position()
-        return self.walking_enabled
 
     def _walking_horizontal_bounds(self):
         screen = self._screen_for_point(self.frameGeometry().center())
@@ -693,6 +716,7 @@ class DesktopPet(QWidget):
             not self.walking_enabled
             or self.current_source_type != "package"
             or self.interaction.pressed
+            or self._walking_is_suspended()
         ):
             return
         bounds = self._walking_horizontal_bounds()
@@ -992,6 +1016,7 @@ class DesktopPet(QWidget):
 
     def set_todo_badge_count(self, count: int):
         self._todo_badge_count = max(0, count)
+        self.interaction.set_activity_active("waiting", self._todo_badge_count > 0)
         if self._todo_badge_count <= 0:
             self.todo_badge.hide()
         else:
@@ -1015,6 +1040,9 @@ class DesktopPet(QWidget):
                 self,
             )
             self.todo_quick_panel.manage_requested.connect(self.open_todo_manager)
+            self.todo_quick_panel.visibility_changed.connect(
+                self._schedule_review_state_sync
+            )
         anchor = self.todo_badge if self.todo_badge.isVisible() else self
         self.todo_quick_panel.toggle_near(anchor)
 
@@ -1036,6 +1064,9 @@ class DesktopPet(QWidget):
             )
             self.todo_manager.todos_changed.connect(self._todo_data_changed)
             self.todo_manager.calendar_changed.connect(self._calendar_data_changed)
+            self.todo_manager.visibility_changed.connect(
+                self._schedule_review_state_sync
+            )
         self.todo_manager.show()
         self.todo_manager.raise_()
         self.todo_manager.activateWindow()
@@ -1043,6 +1074,14 @@ class DesktopPet(QWidget):
             self.todo_manager.select_occurrence(occurrence_id)
         else:
             self.todo_manager.refresh()
+
+    def _schedule_review_state_sync(self, _visible: bool) -> None:
+        QTimer.singleShot(0, self._sync_review_state)
+
+    def _sync_review_state(self) -> None:
+        visible = self._review_window_visible()
+        self.interaction.set_activity_active("review", visible)
+        self._sync_walking_timer()
 
     def _todo_data_changed(self):
         if self.todo_scheduler is not None:
@@ -1211,6 +1250,9 @@ class DesktopPet(QWidget):
     # ------------------------------------------------------------------
 
     def _on_health_break_started(self, kind: str, seconds: int) -> None:
+        self._break_animation_active = True
+        self.interaction.set_activity_active("running", True)
+        self._sync_walking_timer()
         self.sound.play("remind")
         screen = self._screen_for_point(self.frameGeometry().center())
         self.break_overlay.show_break(
@@ -1228,10 +1270,16 @@ class DesktopPet(QWidget):
         self.break_overlay.update_remaining(remaining)
 
     def _on_health_break_finished(self, _kind: str) -> None:
+        self._break_animation_active = False
+        self.interaction.set_activity_active("running", False)
+        self._sync_walking_timer()
         self.break_overlay.hide()
         self.sound.play("complete")
 
     def _on_health_break_skipped(self, _kind: str) -> None:
+        self._break_animation_active = False
+        self.interaction.set_activity_active("running", False)
+        self._sync_walking_timer()
         self.break_overlay.hide()
 
     def set_reminders_paused(self, paused: bool) -> None:

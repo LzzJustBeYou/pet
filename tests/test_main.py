@@ -128,6 +128,32 @@ class DesktopPetTests(unittest.TestCase):
         self.assertFalse(self.pet.walking_enabled)
         self.assertFalse(self.pet._walking_timer.isActive())
 
+    def test_break_uses_running_and_resumes_directional_walking(self):
+        self._load_builtin_interactive_pet()
+        self.pet.set_walking_enabled(True)
+        walking_state = self.pet.sprite_player.state
+
+        self.pet.health.start_break_now()
+
+        self.assertEqual(self.pet.sprite_player.state, "running")
+        self.assertTrue(self.pet.walking_enabled)
+        self.assertFalse(self.pet._walking_timer.isActive())
+
+        self.pet.health._finish_break()
+
+        self.assertEqual(self.pet.sprite_player.state, walking_state)
+        self.assertTrue(self.pet._walking_timer.isActive())
+
+    def test_body_click_waves(self):
+        self._load_builtin_interactive_pet()
+        self.pet.show()
+        self.app.processEvents()
+
+        QTest.mouseClick(self.pet, Qt.LeftButton, pos=self.pet.rect().center())
+        self.app.processEvents()
+
+        self.assertEqual(self.pet.sprite_player.state, "waving")
+
     def _load_builtin_interactive_pet(self):
         entry = next(
             item
@@ -283,6 +309,34 @@ class DesktopPetTests(unittest.TestCase):
 
         self.assertTrue(self.pet.todo_badge.isVisible())
         self.assertEqual(self.pet.todo_badge.text(), "1")
+
+    def test_todo_activity_follows_badge_and_manager_visibility(self):
+        store = TodoStore(Path(self.temp_dir.name) / "todo.sqlite3")
+        calendar = HolidayCalendar(
+            user_path=Path(self.temp_dir.name) / "calendar.json",
+            bundle_path=ROOT / "calendar_data" / "cn_workdays.json",
+        )
+        self.pet.close()
+        self.pet = DesktopPet(
+            settings=self.settings,
+            todo_store=store,
+            holiday_calendar=calendar,
+            enable_todos=True,
+        )
+        self._load_builtin_interactive_pet()
+        self.app.processEvents()
+        self.pet.todo_scheduler.stop()
+
+        self.pet.set_todo_badge_count(1)
+        self.assertEqual(self.pet.sprite_player.state, "waiting")
+
+        self.pet.open_todo_manager()
+        self.app.processEvents()
+        self.assertEqual(self.pet.sprite_player.state, "review")
+
+        self.pet.todo_manager.hide()
+        self.app.processEvents()
+        self.assertEqual(self.pet.sprite_player.state, "waiting")
 
     def test_todo_badge_sits_at_top_right_corner(self):
         # 参考 Codex 吉祥物角标：贴容器/窗口右上角（top-end / top-0 right-0）

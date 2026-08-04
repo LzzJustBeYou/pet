@@ -94,6 +94,45 @@ class InteractionControllerTests(unittest.TestCase):
         self.controller.set_movement_direction(None)
         self.assertEqual(self.requests[-1], ("idle", True))
 
+    def test_activity_priority_and_restoration(self):
+        self.controller.set_activity_active("waiting", True)
+        self.assertEqual(self.requests[-1], ("waiting", True))
+
+        self.controller.set_movement_direction("right")
+        self.assertEqual(self.requests[-1], ("running-right", True))
+
+        self.controller.set_activity_active("review", True)
+        self.assertEqual(self.requests[-1], ("review", True))
+
+        self.controller.set_activity_active("running", True)
+        self.assertEqual(self.requests[-1], ("running", True))
+
+        self.controller.set_activity_active("running", False)
+        self.assertEqual(self.requests[-1], ("review", True))
+        self.controller.set_activity_active("review", False)
+        self.assertEqual(self.requests[-1], ("running-right", True))
+        self.controller.set_movement_direction(None)
+        self.assertEqual(self.requests[-1], ("waiting", True))
+
+    def test_drag_temporarily_overrides_running_activity(self):
+        self.controller.set_activity_active("running", True)
+        self.controller.press(QPoint(0, 0))
+        self.controller.move(QPoint(-7, 0))
+
+        self.assertEqual(self.requests[-1], ("running-left", True))
+
+        self.controller.release()
+        self.assertEqual(self.requests[-1], ("running", True))
+
+    def test_waving_returns_to_waiting_activity(self):
+        self.controller.set_activity_active("waiting", True)
+
+        self.assertTrue(self.controller.trigger_reaction("waving"))
+        self.assertEqual(self.requests[-1], ("waving", False))
+
+        self.controller.animation_finished("waving")
+        self.assertEqual(self.requests[-1], ("waiting", True))
+
 
 if __name__ == "__main__":
     unittest.main()
